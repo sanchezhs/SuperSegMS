@@ -1,0 +1,9 @@
+train: dataset_yolo/images/train
+val: dataset_yolo/images/val
+test: dataset_yolo/images/test
+
+# Número de clases
+nc: 1
+
+# Nombres de las clases (solo una clase: lesión)
+names: ["lesion"]
