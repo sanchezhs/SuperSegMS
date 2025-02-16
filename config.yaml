@@ -1,0 +1,28 @@
+steps:
+  - name: "preprocessing"
+  - name: "training"
+  - name: "evaluation"
+  - name: "prediction"
+
+preprocessing:
+  - method: "nifti_to_png"
+    params: {}
+    
+  - method: "fsrcnn"  # Opciones: "none", "fsrcnn", "basic"
+    params:
+      scale: 2
+      model: "net/FSRCNN/models/fsrcnn_x2.pth"
+
+model:
+  type: "unet"  # Opciones: "yolo", "unet"
+
+training:
+  batch_size: 16
+  epochs: 50
+  learning_rate: 0.001
+
+dataset:
+  input_path: "datasets/MSLesSeg-Dataset"
+  output_path: "datasets/"
+  train_split: 0.8
+  val_split: 0.2

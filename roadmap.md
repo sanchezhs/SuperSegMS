@@ -53,7 +53,7 @@ Las imágenes NIfTI pueden almacenarse en diferentes orientaciones espaciales:
 
 Formato imágenes: (182, 218, 182) -> (Píxeles, Píxeles, Cantidad de cortes)
 
-# Preguntas
-- La máscara es el "ground truth" con el que se compara la salida del modelo,
-pero algunos pacientes como el P30 no la tienen, ¿cómo se puede evaluar entonces?
-- Las imagenes vienen en tres orientaciones diferentes (axial, coronal, sagital), ¿cómo se maneja esto?
+# Avances
+- La YOLO rinde peor que la UNET
+- Mejorar la resolución usando FSRCNN no parece mejorar el rendimiento de la UNET
+- 

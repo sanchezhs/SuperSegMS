@@ -4,3 +4,4 @@ pillow==11.1.0
 matplotlib==3.10.0
 scikit-learn==1.6.1 
 segmentation-models-pytorch==0.4.0 
+SimpleITK==2.4.1 
