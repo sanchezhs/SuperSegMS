@@ -6,15 +6,17 @@ steps:
 
 preprocessing:
   - method: "nifti_to_png"
-    params: {}
-    
-  - method: "fsrcnn"  # Opciones: "none", "fsrcnn", "basic"
     params:
-      scale: 2
-      model: "net/FSRCNN/models/fsrcnn_x2.pth"
+      method: "best"  # Options: "all", "best"
+      normalize: True
+    
+  # - method: "fsrcnn"  # Options: "none", "fsrcnn", "basic"
+  #   params:
+  #     scale: 2
+  #     model: "net/FSRCNN/models/fsrcnn_x2.pth"
 
 model:
-  type: "unet"  # Opciones: "yolo", "unet"
+  type: "unet"  # Options: "yolo", "unet"
 
 training:
   batch_size: 16
@@ -24,5 +26,6 @@ training:
 dataset:
   input_path: "datasets/MSLesSeg-Dataset"
   output_path: "datasets/"
+  truncate_output: True
   train_split: 0.8
   val_split: 0.2
