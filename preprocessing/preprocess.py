@@ -4,24 +4,16 @@ import nibabel as nib
 import numpy as np
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
+from typing import Optional
 
-def create_dirs(model: str, input_path: str) -> tuple:
-    output_folder = None
+from schemas.pipeline_schemas import PreprocessConfig, Model
 
-    if model == "unet":
-        output_folder = "unet"
-    elif model == "yolo":
-        output_folder = "yolo"
-    else:
-        raise ValueError(f"Invalid model name {model}")
-
-    dataset_path = os.path.join(input_path, output_folder)
-
-    images_train_dir = os.path.join(dataset_path, "images", "train")
-    images_val_dir = os.path.join(dataset_path, "images", "val")
-    images_test_dir = os.path.join(dataset_path, "images", "test")
-    labels_train_dir = os.path.join(dataset_path, "labels", "train")
-    labels_val_dir = os.path.join(dataset_path, "labels", "val")
+def create_dirs(output_path: str) -> tuple:
+    images_train_dir = os.path.join(output_path, "images", "train")
+    images_val_dir = os.path.join(output_path, "images", "val")
+    images_test_dir = os.path.join(output_path, "images", "test")
+    labels_train_dir = os.path.join(output_path, "labels", "train")
+    labels_val_dir = os.path.join(output_path, "labels", "val")
     
     os.makedirs(images_train_dir, exist_ok=True)
     os.makedirs(images_val_dir, exist_ok=True)
@@ -31,20 +23,30 @@ def create_dirs(model: str, input_path: str) -> tuple:
     
     return images_train_dir, images_val_dir, images_test_dir, labels_train_dir, labels_val_dir
 
-def split_patients(patients, test_size=0.2):
+def split_patients(patients, test_size: Optional[float] =0.2):
     train_patients, val_patients = train_test_split(patients, test_size=test_size, random_state=42)
     return set(train_patients), set(val_patients)
 
-def save_image(img: np.ndarray, img_path: str, is_flair: bool = False):
-    if is_flair:
-        cv2.imwrite(img_path, (img / img.max() * 255).astype(np.uint8))
-    else:
-        image = (img > 0).astype(np.uint8) * 255
-        cv2.imwrite(img_path, image)
+def save_image(img: np.ndarray, img_path: str, is_flair: Optional[bool] = False, resize: Optional[tuple[int, int]] = None) -> None:
+    if resize is not None:
+        img = cv2.resize(img, resize, interpolation=cv2.INTER_CUBIC)
 
-def unet_process_train_val(img_size:int, split: int, input_path: str, output_path: str):
+    if is_flair:
+        img = (img - np.min(img)) / (np.max(img) - np.min(img)) * 255
+    else:
+        img = (img > 0).astype(np.uint8) * 255
+
+    cv2.imwrite(img_path, img)
+
+    # if is_flair:
+    #     cv2.imwrite(img_path, (img / img.max() * 255).astype(np.uint8))
+    # else:
+    #     image = (img > 0).astype(np.uint8) * 255
+    #     cv2.imwrite(img_path, image)
+
+def unet_process_train_val(resize: tuple[int, int], split: int, input_path: str, output_path: str):
     base_path_train = f"{input_path}/train"
-    images_train_dir, images_val_dir, _, labels_train_dir, labels_val_dir = create_dirs("unet", output_path)
+    images_train_dir, images_val_dir, _, labels_train_dir, labels_val_dir = create_dirs(output_path)
     patients = [p for p in os.listdir(base_path_train) if os.path.isdir(os.path.join(base_path_train, p))]
     train_patients, val_patients = split_patients(patients, test_size=1 - split)
     
@@ -68,12 +70,12 @@ def unet_process_train_val(img_size:int, split: int, input_path: str, output_pat
             mask_nifti = nib.load(mask_path)
             mask_image = mask_nifti.get_fdata()
             
-            # Select the best slice (with highest signal sum)
-            # best_slice_idx = np.argmax(np.sum(flair_image, axis=(0, 1)))
+            # Select the best slices
+            # We will only consider slices with more than 1% of lesion
             filtered_slices = []
             for i in range(flair_image.shape[2]):
                 lesion_mask = mask_image[:, :, i]
-                lesion_ratio = np.sum(lesion_mask > 0) / lesion_mask.size  # Proporción de píxeles de lesión
+                lesion_ratio = np.sum(lesion_mask > 0) / lesion_mask.size 
                 
                 if lesion_ratio > 0.01:
                     filtered_slices.append(i)
@@ -84,31 +86,16 @@ def unet_process_train_val(img_size:int, split: int, input_path: str, output_pat
             for i in filtered_slices:
                 flair_slice = flair_image[:, :, i]
                 img_filename = f"{patient}_{timepoint}_{i}.png"
-                save_image(flair_slice, os.path.join(images_dir, img_filename), is_flair=True)
+                save_image(flair_slice, os.path.join(images_dir, img_filename), is_flair=True, resize=resize)
 
                 mask_slice = mask_image[:, :, i]
                 label_filename = f"{patient}_{timepoint}_{i}.png"
-                save_image(mask_slice, os.path.join(labels_dir, label_filename))
-            
-            # flair_slice = flair_image[:, :, best_slice_idx]
-            # mask_slice = mask_image[:, :, best_slice_idx]
-            
-            # # Resize images to target size
-            # resized_flair = flair_slice
-            # resized_mask = mask_slice
-            # # resized_flair = cv2.resize(flair_slice, img_size)
-            # # resized_mask = cv2.resize(mask_slice, img_size, interpolation=cv2.INTER_NEAREST)
-            
-            # # Save processed Flair image (normalized to 0-255)
-            # img_filename = f"{patient}_{timepoint}.png"
-            # label_filename = f"{patient}_{timepoint}.png"
+                save_image(mask_slice, os.path.join(labels_dir, label_filename), is_flair=False, resize=resize)
 
-            # save_image(resized_flair, os.path.join(images_dir, img_filename), is_flair=True)
-            # save_image(resized_mask, os.path.join(labels_dir, label_filename))
 
-def unet_process_test(img_size:int, input_path: str, output_path: str):
+def unet_process_test(resize: tuple[int, int], input_path: str, output_path: str):
     base_path_test = f"{input_path}/test"
-    _, _, images_test_dir, _, _ = create_dirs("unet", output_path)
+    _, _, images_test_dir, _, _ = create_dirs(output_path)
 
     for patient in tqdm(os.listdir(base_path_test), desc="Processing test for unet"):
         patient_path = os.path.join(base_path_test, patient)
@@ -120,26 +107,26 @@ def unet_process_test(img_size:int, input_path: str, output_path: str):
         if not os.path.exists(flair_path):
             continue
         
-        # Apply bias field correction if flag is set; otherwise load the image normally.
         flair_nifti = nib.load(flair_path)
         flair_image = flair_nifti.get_fdata()
-        
+
         best_slice_idx = np.argmax(np.sum(flair_image, axis=(0, 1)))
         flair_slice = flair_image[:, :, best_slice_idx]
-
-        img_resized = cv2.resize(flair_slice, img_size)
-        
         img_filename = f"{patient}.png"
-        img_path = os.path.join(images_test_dir, img_filename)
-        cv2.imwrite(img_path, (img_resized / img_resized.max() * 255).astype(np.uint8))
+        save_image(flair_slice, os.path.join(images_test_dir, img_filename), is_flair=True, resize=resize)
 
+def preprocess(config: PreprocessConfig) -> None:
+    model = config.model
+    resize = config.resize
+    split = config.split
+    input_path = config.dataset_path
+    output_path = config.processed_dataset_path
 
-def apply_preprocessing(model: str, img_size: tuple[int, int], split: int, input_path: str, output_path: str):
     match model:
-        case "unet":
-            unet_process_train_val(img_size, split, input_path, output_path)
-            unet_process_test(img_size, input_path, output_path)
-        case "yolo":
+        case Model.UNET:
+            unet_process_train_val(resize, split, input_path, output_path)
+            unet_process_test(resize, input_path, output_path)
+        case Model.YOLO:
             raise NotImplementedError("Yolo preprocessing not implemented")
             # process_yolo(input_path, output_path)
         case _:

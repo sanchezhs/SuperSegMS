@@ -141,7 +141,7 @@ def super_resolve_image_dir(image_path, model, output_path):
     output_pil = Image.fromarray(output_image)
     output_pil.save(output_path)
 
-def process_dataset(input_dir, output_dir, model):
+def process_dataset(input_dir, output_path, model):
     image_files = []
     for root, _, files in os.walk(input_dir):
         for file in files:
@@ -150,7 +150,7 @@ def process_dataset(input_dir, output_dir, model):
     
     for image_path in tqdm(image_files, desc="Processing Images", unit="image"):
         relative_path = os.path.relpath(image_path, input_dir)
-        output_path = os.path.join(output_dir, relative_path)
+        output_path = os.path.join(output_path, relative_path)
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         super_resolve_image_dir(image_path, model, output_path)
 
