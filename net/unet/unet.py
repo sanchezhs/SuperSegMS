@@ -41,7 +41,7 @@ class MRIDataset(Dataset):
 class UNet:
     def __init__(
         self,
-        config: TrainConfig | EvaluateConfig,
+        config: TrainConfig | EvaluateConfig | PredictConfig,
         mode: Literal["train", "evaluate", "predict"],
     ):
         self.mode = mode

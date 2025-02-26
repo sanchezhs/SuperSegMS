@@ -1,6 +1,7 @@
 from schemas.pipeline_schemas import TrainConfig, Model
 
 from net.unet.unet import UNet
+from net.yolo.yolo import YOLO
 
 
 def train(config: TrainConfig) -> None:
@@ -8,6 +9,6 @@ def train(config: TrainConfig) -> None:
         case Model.UNET:
             UNet(config, mode="train").train()
         case Model.YOLO:
-            print("Training YOLO model")
+            YOLO(config).train()
         case _:
             raise ValueError(f"Invalid model name {config.model}")
