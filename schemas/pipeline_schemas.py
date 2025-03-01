@@ -2,21 +2,31 @@ from typing import Optional
 from dataclasses import dataclass
 from enum import Enum
 
-class Model(Enum):
+# (X,Y,Z) = (width, height, depth)
+NIFTI_SIZE = (182, 218) # width, height
+
+class Net(Enum):
     UNET = 'unet'
     YOLO = 'yolo'
 
+class ResizeMethod(Enum):
+    NEAREST = "nearest"
+    LINEAR = "linear"
+    CUBIC = "cubic"
+
 @dataclass
 class PreprocessConfig:
-    model: Model
+    net: Net
     dataset_path: str
     processed_dataset_path: str
     split: Optional[float] = 0.8
     resize: Optional[tuple[int, int]] = None
+    resize_method: Optional[ResizeMethod] = None
+    super_scale: Optional[int] = None
 
 @dataclass
 class TrainConfig:
-    model: Model
+    net: Net
     output_path: str
     dataset_path: str
     batch_size: int = 8

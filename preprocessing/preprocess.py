@@ -6,7 +6,8 @@ from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 from typing import Optional
 
-from schemas.pipeline_schemas import PreprocessConfig, Model
+from schemas.pipeline_schemas import PreprocessConfig, Net, ResizeMethod, NIFTI_SIZE
+from net.FSRCNN.fsrcnn import apply_fsrcnn
 
 def create_dirs(output_path: str) -> tuple:
     images_train_dir = os.path.join(output_path, "images", "train")
@@ -14,63 +15,108 @@ def create_dirs(output_path: str) -> tuple:
     images_test_dir = os.path.join(output_path, "images", "test")
     labels_train_dir = os.path.join(output_path, "labels", "train")
     labels_val_dir = os.path.join(output_path, "labels", "val")
-    
+
     os.makedirs(images_train_dir, exist_ok=True)
     os.makedirs(images_val_dir, exist_ok=True)
     os.makedirs(images_test_dir, exist_ok=True)
     os.makedirs(labels_train_dir, exist_ok=True)
     os.makedirs(labels_val_dir, exist_ok=True)
-    
-    return images_train_dir, images_val_dir, images_test_dir, labels_train_dir, labels_val_dir
 
-def split_patients(patients, test_size: Optional[float] =0.2):
-    train_patients, val_patients = train_test_split(patients, test_size=test_size, random_state=42)
+    return (
+        images_train_dir,
+        images_val_dir,
+        images_test_dir,
+        labels_train_dir,
+        labels_val_dir,
+    )
+
+
+def split_patients(patients, test_size: Optional[float] = 0.2):
+    train_patients, val_patients = train_test_split(
+        patients, test_size=test_size, random_state=42
+    )
     return set(train_patients), set(val_patients)
 
-def save_image(img: np.ndarray, img_path: str, is_flair: Optional[bool] = False, resize: Optional[tuple[int, int]] = None) -> None:
-    if resize is not None:
-        img = cv2.resize(img, resize, interpolation=cv2.INTER_CUBIC)
+
+def save_image(
+    img: np.ndarray,
+    img_path: str,
+    is_flair: Optional[bool] = False,
+    resize: Optional[tuple[int, int]] = None,
+    super_scale: Optional[int] = None,
+    resize_method: Optional[ResizeMethod] = None,
+) -> None:
+    if super_scale:
+        img = apply_fsrcnn(img, super_scale)
+        cv2.imwrite(img_path, img)
+
+        return
+    
+    if resize:
+        interpolation = {
+            "NEAREST": cv2.INTER_NEAREST,
+            "LINEAR": cv2.INTER_LINEAR,
+            "CUBIC": cv2.INTER_CUBIC,
+        }.get(resize_method, cv2.INTER_LINEAR)
+        img = cv2.resize(img, resize, interpolation=interpolation)
 
     if is_flair:
-        img = (img - np.min(img)) / (np.max(img) - np.min(img)) * 255
-    else:
+        img = (img - img.min()) / (img.max() - img.min() + 1e-8) * 255
+    elif not is_flair:
         img = (img > 0).astype(np.uint8) * 255
 
     cv2.imwrite(img_path, img)
 
-def unet_process_train_val(resize: tuple[int, int], split: int, input_path: str, output_path: str):
+def unet_process_train_val(
+    resize: tuple[int, int],
+    resize_method: ResizeMethod,
+    super_scale: int,
+    split: int,
+    input_path: str,
+    output_path: str,
+):
     base_path_train = f"{input_path}/train"
-    images_train_dir, images_val_dir, _, labels_train_dir, labels_val_dir = create_dirs(output_path)
-    patients = [p for p in os.listdir(base_path_train) if os.path.isdir(os.path.join(base_path_train, p))]
+    images_train_dir, images_val_dir, _, labels_train_dir, labels_val_dir = create_dirs(
+        output_path
+    )
+    patients = [
+        p
+        for p in os.listdir(base_path_train)
+        if os.path.isdir(os.path.join(base_path_train, p))
+    ]
     train_patients, val_patients = split_patients(patients, test_size=1 - split)
-    
+
     for patient in tqdm(patients, desc="Processing unet"):
         patient_path = os.path.join(base_path_train, patient)
         split = "train" if patient in train_patients else "val"
         images_dir = images_train_dir if split == "train" else images_val_dir
         labels_dir = labels_train_dir if split == "train" else labels_val_dir
-        
+
         for timepoint in os.listdir(patient_path):
-            flair_path = os.path.join(patient_path, timepoint, f"{patient}_{timepoint}_FLAIR.nii.gz")
-            mask_path = os.path.join(patient_path, timepoint, f"{patient}_{timepoint}_MASK.nii.gz")
-            
+            flair_path = os.path.join(
+                patient_path, timepoint, f"{patient}_{timepoint}_FLAIR.nii.gz"
+            )
+            mask_path = os.path.join(
+                patient_path, timepoint, f"{patient}_{timepoint}_MASK.nii.gz"
+            )
+
             if not os.path.exists(flair_path) or not os.path.exists(mask_path):
                 continue
-            
+
             # Load the Flair image
             flair_nifti = nib.load(flair_path)
             flair_image = flair_nifti.get_fdata()
-            
+
             mask_nifti = nib.load(mask_path)
             mask_image = mask_nifti.get_fdata()
-            
+
             # Select the best slices
             # We will only consider slices with more than 1% of lesion
             filtered_slices = []
             for i in range(flair_image.shape[2]):
                 lesion_mask = mask_image[:, :, i]
-                lesion_ratio = np.sum(lesion_mask > 0) / lesion_mask.size 
-                
+                lesion_ratio = np.sum(lesion_mask > 0) / lesion_mask.size
+
                 if lesion_ratio > 0.01:
                     filtered_slices.append(i)
 
@@ -80,14 +126,27 @@ def unet_process_train_val(resize: tuple[int, int], split: int, input_path: str,
             for i in filtered_slices:
                 flair_slice = flair_image[:, :, i]
                 img_filename = f"{patient}_{timepoint}_{i}.png"
-                save_image(flair_slice, os.path.join(images_dir, img_filename), is_flair=True, resize=resize)
-
+                save_image(
+                    flair_slice,
+                    os.path.join(images_dir, img_filename),
+                    is_flair=True,
+                    resize=resize,
+                    super_scale=super_scale,
+                    resize_method=resize_method,
+                )
                 mask_slice = mask_image[:, :, i]
                 label_filename = f"{patient}_{timepoint}_{i}.png"
-                save_image(mask_slice, os.path.join(labels_dir, label_filename), is_flair=False, resize=resize)
+                save_image(
+                    mask_slice,
+                    os.path.join(labels_dir, label_filename),
+                    is_flair=False,
+                    resize=resize,
+                    super_scale=super_scale,
+                    resize_method=resize_method,
+                )
 
 
-def unet_process_test(resize: tuple[int, int], input_path: str, output_path: str):
+def unet_process_test(resize: tuple[int, int], super_scale: int, resize_method: ResizeMethod, input_path: str, output_path: str):
     base_path_test = f"{input_path}/test"
     _, _, images_test_dir, _, _ = create_dirs(output_path)
 
@@ -95,51 +154,70 @@ def unet_process_test(resize: tuple[int, int], input_path: str, output_path: str
         patient_path = os.path.join(base_path_test, patient)
         if not os.path.isdir(patient_path):
             continue
-        
+
         flair_path = os.path.join(patient_path, f"{patient}_FLAIR.nii.gz")
-        
+
         if not os.path.exists(flair_path):
             continue
-        
+
         flair_nifti = nib.load(flair_path)
         flair_image = flair_nifti.get_fdata()
 
         best_slice_idx = np.argmax(np.sum(flair_image, axis=(0, 1)))
         flair_slice = flair_image[:, :, best_slice_idx]
         img_filename = f"{patient}.png"
-        save_image(flair_slice, os.path.join(images_test_dir, img_filename), is_flair=True, resize=resize)
+        save_image(
+            flair_slice,
+            os.path.join(images_test_dir, img_filename),
+            is_flair=True,
+            resize=resize,
+            resize_method=resize_method,
+            super_scale=super_scale,
+        )
 
 
-def yolo_process_train_val(resize: tuple[int, int], split: int, input_path: str, output_path: str):
+def yolo_process_train_val(
+    resize: tuple[int, int], split: int, input_path: str, output_path: str
+):
     base_path_train = f"{input_path}/train"
-    images_train_dir, images_val_dir, _, labels_train_dir, labels_val_dir = create_dirs(output_path)
-    patients = [p for p in os.listdir(base_path_train) if os.path.isdir(os.path.join(base_path_train, p))]
+    images_train_dir, images_val_dir, _, labels_train_dir, labels_val_dir = create_dirs(
+        output_path
+    )
+    patients = [
+        p
+        for p in os.listdir(base_path_train)
+        if os.path.isdir(os.path.join(base_path_train, p))
+    ]
     train_patients, val_patients = split_patients(patients, test_size=1 - split)
-    
+
     for patient in tqdm(patients, desc="Processing yolo"):
         patient_path = os.path.join(base_path_train, patient)
         split = "train" if patient in train_patients else "val"
         images_dir = images_train_dir if split == "train" else images_val_dir
         labels_dir = labels_train_dir if split == "train" else labels_val_dir
-        
+
         for timepoint in os.listdir(patient_path):
-            flair_path = os.path.join(patient_path, timepoint, f"{patient}_{timepoint}_FLAIR.nii.gz")
-            mask_path = os.path.join(patient_path, timepoint, f"{patient}_{timepoint}_MASK.nii.gz")
-            
+            flair_path = os.path.join(
+                patient_path, timepoint, f"{patient}_{timepoint}_FLAIR.nii.gz"
+            )
+            mask_path = os.path.join(
+                patient_path, timepoint, f"{patient}_{timepoint}_MASK.nii.gz"
+            )
+
             if not os.path.exists(flair_path) or not os.path.exists(mask_path):
                 continue
-            
+
             flair_nifti = nib.load(flair_path)
             flair_image = flair_nifti.get_fdata()
-            
+
             mask_nifti = nib.load(mask_path)
             mask_image = mask_nifti.get_fdata()
-            
+
             filtered_slices = []
             for i in range(flair_image.shape[2]):
                 lesion_mask = mask_image[:, :, i]
-                lesion_ratio = np.sum(lesion_mask > 0) / lesion_mask.size 
-                
+                lesion_ratio = np.sum(lesion_mask > 0) / lesion_mask.size
+
                 if lesion_ratio > 0.01:
                     filtered_slices.append(i)
 
@@ -149,7 +227,12 @@ def yolo_process_train_val(resize: tuple[int, int], split: int, input_path: str,
             for i in filtered_slices:
                 flair_slice = flair_image[:, :, i]
                 img_filename = f"{patient}_{timepoint}_{i}.png"
-                save_image(flair_slice, os.path.join(images_dir, img_filename), is_flair=True, resize=resize)
+                save_image(
+                    flair_slice,
+                    os.path.join(images_dir, img_filename),
+                    is_flair=True,
+                    resize=resize,
+                )
 
                 mask_slice = mask_image[:, :, i]
                 label_filename = f"{patient}_{timepoint}_{i}.txt"
@@ -157,6 +240,7 @@ def yolo_process_train_val(resize: tuple[int, int], split: int, input_path: str,
                 if yolo_labels:
                     with open(os.path.join(labels_dir, label_filename), "w") as f:
                         f.write("\n".join(yolo_labels))
+
 
 def yolo_process_test(resize: tuple[int, int], input_path: str, output_path: str):
     base_path_test = f"{input_path}/test"
@@ -166,19 +250,25 @@ def yolo_process_test(resize: tuple[int, int], input_path: str, output_path: str
         patient_path = os.path.join(base_path_test, patient)
         if not os.path.isdir(patient_path):
             continue
-        
+
         flair_path = os.path.join(patient_path, f"{patient}_FLAIR.nii.gz")
-        
+
         if not os.path.exists(flair_path):
             continue
-        
+
         flair_nifti = nib.load(flair_path)
         flair_image = flair_nifti.get_fdata()
 
         best_slice_idx = np.argmax(np.sum(flair_image, axis=(0, 1)))
         flair_slice = flair_image[:, :, best_slice_idx]
         img_filename = f"{patient}.png"
-        save_image(flair_slice, os.path.join(images_test_dir, img_filename), is_flair=True, resize=resize)
+        save_image(
+            flair_slice,
+            os.path.join(images_test_dir, img_filename),
+            is_flair=True,
+            resize=resize,
+        )
+
 
 def mask_to_yolo(mask: np.ndarray, resize: tuple[int, int] = None) -> list[str]:
     """Converts a binary mask to YOLO format."""
@@ -197,7 +287,7 @@ def mask_to_yolo(mask: np.ndarray, resize: tuple[int, int] = None) -> list[str]:
             polygon = []
             for point in contour:
                 x, y = point[0]
-                polygon.append(f"{x/w:.6f} {y/h:.6f}")
+                polygon.append(f"{x / w:.6f} {y / h:.6f}")
 
             # YOLO-Seg format: <class> <x_center> <y_center> <width> <height> <x1> <y1> <x2> <y2> ... <xN> <yN>
             x_min, y_min = contour.min(axis=0)[0]
@@ -207,24 +297,32 @@ def mask_to_yolo(mask: np.ndarray, resize: tuple[int, int] = None) -> list[str]:
             width = (x_max - x_min) / w
             height = (y_max - y_min) / h
 
-            label = f"0 {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f} " + " ".join(polygon)
+            label = (
+                f"0 {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f} "
+                + " ".join(polygon)
+            )
             yolo_labels.append(label)
 
     return yolo_labels
 
+
 def preprocess(config: PreprocessConfig) -> None:
-    model = config.model
+    net = config.net
     resize = config.resize
+    resize_method = config.resize_method
+    super_scale = config.super_scale
     split = config.split
     input_path = config.dataset_path
     output_path = config.processed_dataset_path
 
-    match model:
-        case Model.UNET:
-            unet_process_train_val(resize, split, input_path, output_path)
-            unet_process_test(resize, input_path, output_path)
-        case Model.YOLO:
+    match net:
+        case Net.UNET:
+            unet_process_train_val(
+                resize, resize_method, super_scale, split, input_path, output_path
+            )
+            unet_process_test(resize, super_scale, resize_method, input_path, output_path)
+        case Net.YOLO:
             yolo_process_train_val(resize, split, input_path, output_path)
             yolo_process_test(resize, input_path, output_path)
         case _:
-            raise ValueError(f"Invalid model name {model}")
+            raise ValueError(f"Invalid net name {net}")

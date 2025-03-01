@@ -6,7 +6,8 @@ from schemas.pipeline_schemas import (
     EvaluateConfig,
     PredictConfig,
     PipelineConfig,
-    Model,
+    Net,
+    ResizeMethod,
 )
 
 from preprocessing.preprocess import preprocess
@@ -17,11 +18,11 @@ from prediction.predict import predict
 
 def setup_preprocess_parser(subparser: argparse.ArgumentParser) -> None:
     subparser.add_argument(
-        "--model",
+        "--net",
         type=str,
         required=True,
-        choices=["unet", "yolo"],
-        help="Model type to preprocess the dataset for. Choices: 'unet' or 'yolo'.",
+        choices=[x.value for x in Net],
+        help="Net type to preprocess the dataset for. Choices: 'unet' or 'yolo'.",
     )
     subparser.add_argument(
         "--dataset_path",
@@ -42,20 +43,42 @@ def setup_preprocess_parser(subparser: argparse.ArgumentParser) -> None:
         help="Resize images to a specific size, format: WIDTHxHEIGHT (e.g., 256x256). Leave empty to keep original size.",
     )
     subparser.add_argument(
+        "--resize_method",
+        type=str,
+        choices=[x.value for x in ResizeMethod],
+        help="Method to use for resizing. Required if --resize is used.",
+    )
+    subparser.add_argument(
+        "--super_scale",
+        type=int,
+        choices=[2, 3, 4],
+        help="Super resolution scale factor. Required if --resize_method is 'fsrcnn'.",
+    )
+    subparser.add_argument(
         "--split",
         type=float,
         default=0.8,
         help="Fraction of the dataset used for training. The rest is used for validation. Default: 0.8 (80% training, 20% validation).",
     )
 
+    def check_resize_args(args):
+        if args.resize and not args.resize_method:
+            subparser.error("--resize requires --resize_method to be specified.")
+        if args.resize and args.super_scale:
+            subparser.error("--resize and --super_scale cannot be used together.")
+        if args.resize_method and not args.resize:
+            subparser.error("--resize_method requires --resize to be specified.")
+
+    subparser.set_defaults(func=check_resize_args)
+
 
 def setup_train_parser(subparser: argparse.ArgumentParser) -> None:
     subparser.add_argument(
-        "--model",
+        "--net",
         type=str,
         required=True,
         choices=["unet", "yolo"],
-        help="Model to train. Choices: 'unet' or 'yolo'.",
+        help="Net to train. Choices: 'unet' or 'yolo'.",
     )
     subparser.add_argument(
         "--output_path",
@@ -136,17 +159,19 @@ def parse_cli_args(args: argparse.Namespace) -> PipelineConfig:
 
         return PipelineConfig(
             preprocess_config=PreprocessConfig(
-                model=Model(args.model),
+                net=Net(args.net),
                 dataset_path=args.dataset_path,
                 processed_dataset_path=args.processed_dataset_path,
                 split=args.split,
                 resize=args.resize,
+                super_scale=args.super_scale,
+                resize_method=args.resize_method,
             )
         )
     elif args.step == "train":
         return PipelineConfig(
             train_config=TrainConfig(
-                model=Model(args.model),
+                net=Net(args.net),
                 output_path=args.output_path,
                 dataset_path=args.dataset_path,
                 batch_size=args.batch_size,
