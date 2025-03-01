@@ -3,16 +3,19 @@ from dataclasses import dataclass
 from enum import Enum
 
 # (X,Y,Z) = (width, height, depth)
-NIFTI_SIZE = (182, 218) # width, height
+NIFTI_SIZE = (182, 218)  # width, height
+
 
 class Net(Enum):
-    UNET = 'unet'
-    YOLO = 'yolo'
+    UNET = "unet"
+    YOLO = "yolo"
+
 
 class ResizeMethod(Enum):
     NEAREST = "nearest"
     LINEAR = "linear"
     CUBIC = "cubic"
+
 
 @dataclass
 class PreprocessConfig:
@@ -24,6 +27,7 @@ class PreprocessConfig:
     resize_method: Optional[ResizeMethod] = None
     super_scale: Optional[int] = None
 
+
 @dataclass
 class TrainConfig:
     net: Net
@@ -33,16 +37,19 @@ class TrainConfig:
     epochs: int = 10
     learning_rate: float = 1e-3
 
+
 @dataclass
 class EvaluateConfig:
     model_path: str
     dataset_path: str
+
 
 @dataclass
 class PredictConfig:
     model_path: str
     dataset_path: str
     output_path: str
+
 
 @dataclass
 class PipelineConfig:
@@ -52,23 +59,38 @@ class PipelineConfig:
     - train_config
     ...
     """
+
+    step: str
     preprocess_config: Optional[PreprocessConfig] = None
     train_config: Optional[TrainConfig] = None
     evaluate_config: Optional[EvaluateConfig] = None
     predict_config: Optional[PredictConfig] = None
 
+    def __post_init__(self):
+        """Ensure exactly one configuration is provided."""
+        configs = [
+            self.preprocess_config,
+            self.train_config,
+            self.evaluate_config,
+            self.predict_config,
+        ]
+        if sum(cfg is not None for cfg in configs) != 1:
+            raise ValueError("Exactly one configuration option must be provided.")
+
+    @property
+    def active_config(self):
+        mapping = {
+            "preprocess": self.preprocess_config,
+            "train": self.train_config,
+            "evaluate": self.evaluate_config,
+            "predict": self.predict_config,
+        }
+        return mapping.get(self.step)
+
     def print_config(self):
-        if self.preprocess_config:
-            print("Preprocess config:")
-            print(self.preprocess_config)
-        elif self.train_config:
-            print("Train config:")
-            print(self.train_config)
-        elif self.evaluate_config:
-            print("Evaluate config:")
-            print(self.evaluate_config)
-        elif self.predict_config:
-            print("Predict config:")
-            print(self.predict_config)
+        config = self.active_config
+        if config:
+            print(f"{self.step.capitalize()} config:")
+            print(config)
         else:
             raise ValueError("Invalid configuration")

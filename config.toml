@@ -1,0 +1,27 @@
+step = "preprocess"
+
+[preprocess]
+net = "unet"
+dataset_path = "datasets/MSLesSeg-Dataset"
+processed_dataset_path = "datasets/result"
+# resize = "256x256"
+# super_scale = 2
+# resize_method = "bilinear"
+split = 0.8
+
+[train]
+net = "unet"
+output_path = "unet_res"
+dataset_path = "datasets/MSLesSeg-Dataset"
+batch_size = 8
+epochs = 50
+learning_rate = 0.001
+
+[evaluate]
+model_path = "unet_res/models/unet_res_50.pth"
+dataset_path = "datasets/MSLesSeg-Dataset"
+
+[predict]
+model_path = "unet_res/models/unet_res_50.pth"
+dataset_path = "datasets/MSLesSeg-Dataset"
+output_path = "unet_res/predictions"
