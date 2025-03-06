@@ -1,27 +1,36 @@
-step = "preprocess"
+step = "predict"
 
 [preprocess]
-net = "unet"
-dataset_path = "datasets/MSLesSeg-Dataset"
-processed_dataset_path = "datasets/result"
-# resize = "256x256"
+net = "yolo"
+src_path = "datasets/MSLesSeg-Dataset"
+dst_path = "datasets/yolo_single"
+resize = "256x256"
 # super_scale = 2
 # resize_method = "bilinear"
 split = 0.8
 
 [train]
-net = "unet"
-output_path = "unet_res"
-dataset_path = "datasets/MSLesSeg-Dataset"
+net = "yolo"
+src_path = "datasets/yolo_single"
+dst_path = "results/yolo_res_single"
 batch_size = 8
-epochs = 50
+epochs = 25
 learning_rate = 0.001
+limit_resources = true
 
-[evaluate]
-model_path = "unet_res/models/unet_res_50.pth"
-dataset_path = "datasets/MSLesSeg-Dataset"
+# [predict]
+# net = "yolo"
+# src_path = "datasets/yolo_single"
+# dst_path = "results/yolo/yolo_res_single/predictions"
+# model_path = "results/yolo/yolo_res_single/train/weights/best.pt"
 
 [predict]
-model_path = "unet_res/models/unet_res_50.pth"
-dataset_path = "datasets/MSLesSeg-Dataset"
-output_path = "unet_res/predictions"
+net = "unet"
+src_path = "datasets/unet_single"
+dst_path = "results/unet/unet_res_single/predictions"
+model_path = "results/unet/unet_res_single/models/unet_model.pth"
+
+[evaluate]
+net = "unet"
+model_path = "unet_res_single/models/unet_model.pth"
+src_path = "results/datasets/unet_single"

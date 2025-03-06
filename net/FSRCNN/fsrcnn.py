@@ -129,7 +129,7 @@ def super_resolve_image(image_path, model):
 
     plt.show()
 
-def super_resolve_image_dir(image_path, model, output_path):
+def super_resolve_image_dir(image_path, model, dst_path):
     image = Image.open(image_path).convert("L")
     transform = transforms.Compose([transforms.ToTensor()])
     image_tensor = transform(image).unsqueeze(0)
@@ -140,7 +140,7 @@ def super_resolve_image_dir(image_path, model, output_path):
     output_image = np.clip(output_image, 0, 1)
     output_image = (output_image * 255).astype(np.uint8)
     output_pil = Image.fromarray(output_image)
-    output_pil.save(output_path)
+    output_pil.save(dst_path)
 
 
 def process_dataset(input_dir, output_dir, model):

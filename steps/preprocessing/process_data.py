@@ -46,13 +46,13 @@ def create_dirs(dataset_format, apply_bias=False):
     output_folder = FORMATS[dataset_format]
     if apply_bias:
         output_folder += "_bias"
-    dataset_path = os.path.join(OUTPUT_PATH, output_folder)
+    src_path = os.path.join(OUTPUT_PATH, output_folder)
     
-    images_train_dir = os.path.join(dataset_path, "images", "train")
-    images_val_dir = os.path.join(dataset_path, "images", "val")
-    images_test_dir = os.path.join(dataset_path, "images", "test")
-    labels_train_dir = os.path.join(dataset_path, "labels", "train")
-    labels_val_dir = os.path.join(dataset_path, "labels", "val")
+    images_train_dir = os.path.join(src_path, "images", "train")
+    images_val_dir = os.path.join(src_path, "images", "val")
+    images_test_dir = os.path.join(src_path, "images", "test")
+    labels_train_dir = os.path.join(src_path, "labels", "train")
+    labels_val_dir = os.path.join(src_path, "labels", "val")
     
     os.makedirs(images_train_dir, exist_ok=True)
     os.makedirs(images_val_dir, exist_ok=True)

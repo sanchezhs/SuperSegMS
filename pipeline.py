@@ -12,10 +12,10 @@ from schemas.pipeline_schemas import (
     ResizeMethod,
 )
 
-from preprocessing.preprocess import preprocess
-from training.train import train
-from evaluation.evaluate import evaluate
-from prediction.predict import predict
+from steps.preprocessing.preprocess import preprocess
+from steps.training.train import train
+from steps.evaluation.evaluate import evaluate
+from steps.prediction.predict import predict
 
 
 def setup_preprocess_parser(subparser: argparse.ArgumentParser) -> None:
@@ -27,13 +27,13 @@ def setup_preprocess_parser(subparser: argparse.ArgumentParser) -> None:
         help="Net type to preprocess the dataset for. Choices: 'unet' or 'yolo'.",
     )
     subparser.add_argument(
-        "--dataset_path",
+        "--src_path",
         type=str,
         required=True,
         help="Path to the raw dataset that needs preprocessing.",
     )
     subparser.add_argument(
-        "--processed_dataset_path",
+        "--dst_path",
         type=str,
         required=True,
         help="Path to store the preprocessed dataset.",
@@ -63,7 +63,7 @@ def setup_preprocess_parser(subparser: argparse.ArgumentParser) -> None:
         help="Fraction of the dataset used for training. The rest is used for validation. Default: 0.8 (80% training, 20% validation).",
     )
 
-    def validate_resize_args(args):
+    def validate_resize_args(args: argparse.Namespace) -> None:
         """
         Validate that the resize-related arguments are provided correctly.
         """
@@ -86,13 +86,13 @@ def setup_train_parser(subparser: argparse.ArgumentParser) -> None:
         help="Net to train. Choices: 'unet' or 'yolo'.",
     )
     subparser.add_argument(
-        "--output_path",
+        "--dst_path",
         type=str,
         required=True,
         help="Directory to save training results, including model checkpoints and logs.",
     )
     subparser.add_argument(
-        "--dataset_path",
+        "--src_path",
         type=str,
         required=True,
         help="Path to the dataset used for training.",
@@ -115,6 +115,12 @@ def setup_train_parser(subparser: argparse.ArgumentParser) -> None:
         default=1e-3,
         help="Step size at each iteration when updating model weights. Default: 0.001.",
     )
+    subparser.add_argument(
+        "--limit_resources",
+        type=bool,
+        default=False,
+        help="Limit GPU memory usage to 50%.",
+    )
 
 
 def setup_evaluate_parser(subparser: argparse.ArgumentParser) -> None:
@@ -125,7 +131,7 @@ def setup_evaluate_parser(subparser: argparse.ArgumentParser) -> None:
         help="Path to the trained model file to be evaluated.",
     )
     subparser.add_argument(
-        "--dataset_path",
+        "--src_path",
         type=str,
         required=True,
         help="Path to the dataset used for evaluation.",
@@ -134,19 +140,26 @@ def setup_evaluate_parser(subparser: argparse.ArgumentParser) -> None:
 
 def setup_predict_parser(subparser: argparse.ArgumentParser) -> None:
     subparser.add_argument(
+        "--net",
+        type=str,
+        required=True,
+        choices=[x.value for x in Net],
+        help="Net type to make predictions with. Choices: 'unet' or 'yolo'.",
+    )
+    subparser.add_argument(
         "--model_path",
         type=str,
         required=True,
         help="Path to the trained model file used for making predictions.",
     )
     subparser.add_argument(
-        "--dataset_path",
+        "--src_path",
         type=str,
         required=True,
         help="Path to the dataset on which predictions will be performed.",
     )
     subparser.add_argument(
-        "--output_path",
+        "--dst_path",
         type=str,
         required=True,
         help="Directory to save the generated predictions.",
@@ -168,20 +181,33 @@ def parse_toml_config(config: str | None) -> PipelineConfig:
         raise ValueError(f"Config file {config_path} is empty.")
 
     parsed_toml = toml.loads(conf)
-    step = parsed_toml.get("step")
+    step = parsed_toml.get("step", None)
+
+    if not step:
+        raise ValueError("Step is required in the config file.")
 
     match parsed_toml["step"]:
         case "preprocess":
+            resize = parsed_toml["preprocess"].get("resize", None)
+
+            if resize:
+                parts = resize.split("x")
+
+            if len(parts) == 2:
+                resize = (int(parts[0]), int(parts[1]))
+            else:
+                resize = None
+
             return PipelineConfig(
                 step=step,
                 preprocess_config=PreprocessConfig(
                     net=Net(parsed_toml["preprocess"]["net"]),
-                    dataset_path=parsed_toml["preprocess"]["dataset_path"],
-                    processed_dataset_path=parsed_toml["preprocess"][
-                        "processed_dataset_path"
+                    src_path=parsed_toml["preprocess"]["src_path"],
+                    dst_path=parsed_toml["preprocess"][
+                        "dst_path"
                     ],
                     split=parsed_toml["preprocess"]["split"],
-                    resize=parsed_toml["preprocess"].get("resize", None),
+                    resize=resize,
                     super_scale=parsed_toml["preprocess"].get("super_scale", None),
                     resize_method=parsed_toml["preprocess"].get("resize_method", None),
                 ),
@@ -191,11 +217,12 @@ def parse_toml_config(config: str | None) -> PipelineConfig:
                 step=step,
                 train_config=TrainConfig(
                     net=Net(parsed_toml["train"]["net"]),
-                    output_path=parsed_toml["train"]["output_path"],
-                    dataset_path=parsed_toml["train"]["dataset_path"],
+                    dst_path=parsed_toml["train"]["dst_path"],
+                    src_path=parsed_toml["train"]["src_path"],
                     batch_size=parsed_toml["train"]["batch_size"],
                     epochs=parsed_toml["train"]["epochs"],
                     learning_rate=parsed_toml["train"]["learning_rate"],
+                    limit_resources=parsed_toml["train"].get("limit_resources", False),
                 ),
             )
         case "evaluate":
@@ -203,16 +230,17 @@ def parse_toml_config(config: str | None) -> PipelineConfig:
                 step=step,
                 evaluate_config=EvaluateConfig(
                     model_path=parsed_toml["evaluate"]["model_path"],
-                    dataset_path=parsed_toml["evaluate"]["dataset_path"],
+                    src_path=parsed_toml["evaluate"]["src_path"],
                 ),
             )
         case "predict":
             return PipelineConfig(
                 step=step,
                 predict_config=PredictConfig(
+                    net=Net(parsed_toml["predict"]["net"]),
                     model_path=parsed_toml["predict"]["model_path"],
-                    dataset_path=parsed_toml["predict"]["dataset_path"],
-                    output_path=parsed_toml["predict"]["output_path"],
+                    src_path=parsed_toml["predict"]["src_path"],
+                    dst_path=parsed_toml["predict"]["dst_path"],
                 ),
             )
         case _:
@@ -241,12 +269,12 @@ def parse_cli_args(args: argparse.Namespace) -> PipelineConfig:
             step=args.step,
             preprocess_config=PreprocessConfig(
                 net=Net(args.net),
-                dataset_path=args.dataset_path,
-                processed_dataset_path=args.processed_dataset_path,
+                src_path=args.src_path,
+                dst_path=args.dst_path,
                 split=args.split,
                 resize=args.resize,
                 super_scale=args.super_scale,
-                resize_method=args.resize_method,
+                resize_method=args.resize_method or None,
             ),
         )
     elif args.step == "train":
@@ -254,8 +282,8 @@ def parse_cli_args(args: argparse.Namespace) -> PipelineConfig:
             step=args.step,
             train_config=TrainConfig(
                 net=Net(args.net),
-                output_path=args.output_path,
-                dataset_path=args.dataset_path,
+                dst_path=args.dst_path,
+                src_path=args.src_path,
                 batch_size=args.batch_size,
                 epochs=args.epochs,
                 learning_rate=args.learning_rate,
@@ -265,16 +293,17 @@ def parse_cli_args(args: argparse.Namespace) -> PipelineConfig:
         return PipelineConfig(
             step=args.step,
             evaluate_config=EvaluateConfig(
-                model_path=args.model_path, dataset_path=args.dataset_path
+                model_path=args.model_path, src_path=args.src_path
             ),
         )
     elif args.step == "predict":
         return PipelineConfig(
             step=args.step,
             predict_config=PredictConfig(
+                net=Net(args.net),
                 model_path=args.model_path,
-                dataset_path=args.dataset_path,
-                output_path=args.output_path,
+                src_path=args.src_path,
+                dst_path=args.dst_path,
             ),
         )
     else:
@@ -327,13 +356,13 @@ Each step is a separate module that can be run independently.
     pipeline_config = parse_cli_args(args)
     pipeline_config.print_config()
 
-    if pipeline_config.step == "preprocess":
+    if pipeline_config.step == "preprocess" and pipeline_config.preprocess_config:
         preprocess(pipeline_config.preprocess_config)
-    elif pipeline_config.step == "train":
+    elif pipeline_config.step == "train" and pipeline_config.train_config:
         train(pipeline_config.train_config)
-    elif pipeline_config.step == "evaluate":
+    elif pipeline_config.step == "evaluate" and pipeline_config.evaluate_config:
         evaluate(pipeline_config.evaluate_config)
-    elif pipeline_config.step == "predict":
+    elif pipeline_config.step == "predict" and pipeline_config.predict_config:
         predict(pipeline_config.predict_config)
     else:
         raise ValueError(f"Invalid step {pipeline_config.step}")

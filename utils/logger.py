@@ -1,7 +1,8 @@
 from logging import getLogger, StreamHandler, Formatter, DEBUG, INFO
+from logging import Logger
 import sys
 
-def get_logger(name: str, level: int = INFO):
+def get_logger(name: str, level: int = INFO) -> Logger:
     logger = getLogger(name)
     logger.setLevel(level)
     logger.propagate = False  # Prevent propagation to parent loggers

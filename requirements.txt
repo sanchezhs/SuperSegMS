@@ -6,3 +6,5 @@ scikit-learn==1.6.1
 segmentation-models-pytorch==0.4.0 
 SimpleITK==2.4.1
 toml==0.10.2 
+mypy==1.15.0
+types-PyYAML
