@@ -47,9 +47,10 @@ def save_image(
     resize_method: Optional[ResizeMethod] = None,
 ) -> None:
     if super_scale:
+        if resize:
+            img = cv2.resize(img, resize, interpolation=cv2.INTER_CUBIC)
         img = apply_fsrcnn(img, super_scale)
         cv2.imwrite(img_path, img)
-
         return
     
     if resize:

@@ -32,9 +32,9 @@ class MRIDataset(Dataset):
                 cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255.0
             )
             mask = torch.tensor(mask).unsqueeze(0)
-            return img, mask
+            return img, mask, self.images[idx]
 
-        return img
+        return img, self.images[idx]
 
 
 class UNet:
@@ -92,11 +92,13 @@ class UNet:
             )
             self.src_path = config.src_path
             self.model_path = config.model_path
+            self.pred_path = config.pred_path
+            self.gt_path = config.gt_path
 
             self.model = smp.Unet(
                 encoder_name="resnet34", in_channels=1, classes=1, activation=None
             ).to(self.device)
-            self.load_model()
+            self._load_model()
 
             self.val_loader = DataLoader(
                 MRIDataset(
@@ -115,7 +117,7 @@ class UNet:
             self.model = smp.Unet(
                 encoder_name="resnet34", in_channels=1, classes=1, activation=None
             ).to(self.device)
-            self.load_model()
+            self._load_model()
             self.test_loader = DataLoader(
                 MRIDataset(os.path.join(self.src_path, "images", "test"))
             )
@@ -127,7 +129,7 @@ class UNet:
             self.model.train()
             epoch_loss = 0
 
-            for images, masks in tqdm(self.train_loader, desc=f"Epoch {epoch + 1}/{self.epochs}"):
+            for images, masks, _ in tqdm(self.train_loader, desc=f"Epoch {epoch + 1}/{self.epochs}"):
                 images, masks = images.to(self.device), masks.to(self.device)
                 self.optimizer.zero_grad()
                 outputs = self.model(images)
@@ -144,13 +146,13 @@ class UNet:
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 torch.save(self.model.state_dict(), self.model_path)
-                print(f"Nuevo mejor modelo guardado en {self.model_path}")
+                print(f"New best model saved in {self.model_path}")
 
     def validate(self) -> float:
         self.model.eval()
         val_loss = 0
         with torch.no_grad():
-            for images, masks in self.val_loader:
+            for images, masks, _ in self.val_loader:
                 images, masks = images.to(self.device), masks.to(self.device)
                 outputs = self.model(images)
                 loss = self.criterion(outputs, masks)
@@ -162,30 +164,36 @@ class UNet:
             torch.load(self.model_path, map_location=self.device)
         )
         self.model.eval()
-        ious, dices = [], []
-        all_preds, all_masks = [], []
+        metrics_list = []
+        
         for images, masks in self.val_loader:
             images, masks = images.to(self.device), masks.to(self.device)
             with torch.no_grad():
                 pred_masks = torch.sigmoid(self.model(images)).cpu().numpy().squeeze()
-            iou, dice = self.compute_metrics(pred_masks, masks.cpu().numpy().squeeze())
-            ious.append(iou)
-            dices.append(dice)
-            all_preds.append(pred_masks)
-            all_masks.append(masks.cpu().numpy().squeeze())
+            
+            # Calcular métricas
+            iou, dice, precision, recall, f1_score, specificity = self._compute_all_metrics(pred_masks, masks.cpu().numpy().squeeze())
+            
+            metrics_list.append({
+                "IoU": iou,
+                "Dice Score": dice,
+                "Precision": precision,
+                "Recall": recall,
+                "F1 Score": f1_score,
+                "Specificity": specificity
+            })
+        
+        # Calcular promedios
+        avg_metrics = {key: np.mean([m[key] for m in metrics_list]) for key in metrics_list[0]}
+        
+        self._write_metrics(avg_metrics, format="csv")
 
-        print(f"Average IoU: {np.mean(ious):.4f}")
-        print(f"Average Dice Score: {np.mean(dices):.4f}")
-
-        # Compute confusion matrix
-        all_preds = np.concatenate(all_preds).ravel()
-        all_masks = np.concatenate(all_masks).ravel()
-        tp = np.sum((all_preds > 0.5) & (all_masks > 0.5))
-        tn = np.sum((all_preds <= 0.5) & (all_masks <= 0.5))
-        fp = np.sum((all_preds > 0.5) & (all_masks <= 0.5))
-        fn = np.sum((all_preds <= 0.5) & (all_masks > 0.5))
-
-        print(f"Confusion Matrix: TP={tp}, TN={tn}, FP={fp}, FN={fn}")
+        print(f"Average IoU: {avg_metrics['IoU']:.4f}")
+        print(f"Average Dice Score: {avg_metrics['Dice Score']:.4f}")
+        print(f"Average Precision: {avg_metrics['Precision']:.4f}")
+        print(f"Average Recall: {avg_metrics['Recall']:.4f}")
+        print(f"Average F1 Score: {avg_metrics['F1 Score']:.4f}")
+        print(f"Average Specificity: {avg_metrics['Specificity']:.4f}")
 
     def predict(self) -> None:
         self.model.load_state_dict(
@@ -194,33 +202,50 @@ class UNet:
         self.model.eval()
         
         os.makedirs(os.path.join(self.dst_path), exist_ok=True)
-        next_patient = 54 # 54 is the first patient in the test set
-        for i, image in enumerate(self.test_loader):
+        
+        for i, (image, image_name) in enumerate(self.test_loader):
             image = image.to(self.device)
             with torch.no_grad():
                 pred_mask = torch.sigmoid(self.model(image)).cpu().numpy().squeeze()
             pred_img = ((pred_mask > 0.5) * 255).astype(np.uint8)
-            cv2.imwrite(os.path.join(self.dst_path, f"P{next_patient}.png"), pred_img)
-            next_patient += 1
+            output_path = os.path.join(self.dst_path, image_name[0])
+            cv2.imwrite(output_path, pred_img)
+        
         print("Predictions saved in test directory.")
 
-    def load_model(self) -> None:
+    def _load_model(self) -> None:
         """Load pre-trained model"""
         self.model.load_state_dict(
             torch.load(self.model_path, map_location=self.device)
         )
         self.model.eval()
 
-    @staticmethod
-    def compute_metrics(pred, mask) -> tuple[float, float]:
-        pred_bin = (pred > 0.5).astype(np.uint8)
-        mask_bin = (mask > 0.5).astype(np.uint8)
-        intersection = np.logical_and(pred_bin, mask_bin).sum()
-        union = np.logical_or(pred_bin, mask_bin).sum()
-        iou = intersection / union if union > 0 else 0
-        dice = (
-            (2.0 * intersection) / (pred_bin.sum() + mask_bin.sum())
-            if (pred_bin.sum() + mask_bin.sum()) > 0
-            else 0
-        )
-        return iou, dice
+    def _compute_all_metrics(self, pred, mask) -> tuple[float, float, float, float, float, float]:
+            pred_bin = (pred > 0.5).astype(np.uint8)
+            mask_bin = (mask > 0.5).astype(np.uint8)
+            
+            tp = np.logical_and(pred_bin, mask_bin).sum()
+            fp = np.logical_and(pred_bin, np.logical_not(mask_bin)).sum()
+            fn = np.logical_and(np.logical_not(pred_bin), mask_bin).sum()
+            tn = np.logical_and(np.logical_not(pred_bin), np.logical_not(mask_bin)).sum()
+            
+            iou = tp / (tp + fp + fn) if (tp + fp + fn) > 0 else 0
+            dice = (2.0 * tp) / (2.0 * tp + fp + fn) if (2.0 * tp + fp + fn) > 0 else 0
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+            f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+            specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
+            
+            return iou, dice, precision, recall, f1_score, specificity
+
+
+    def _write_metrics(self, metrics: dict, format: str = "csv") -> None:
+        if format == "csv":
+            with open(os.path.join(self.pred_path, "metrics.csv"), "w") as f:
+                f.write("Metric,Value\n")
+                for key, value in metrics.items():
+                    f.write(f"{key},{value}\n")
+        else:
+            raise ValueError("Invalid format. Only 'csv' is supported.")
+        
+        print(f"Metrics saved in {self.pred_path}/metrics.csv")

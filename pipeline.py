@@ -229,8 +229,11 @@ def parse_toml_config(config: str | None) -> PipelineConfig:
             return PipelineConfig(
                 step=step,
                 evaluate_config=EvaluateConfig(
+                    net=Net(parsed_toml["evaluate"]["net"]),
                     model_path=parsed_toml["evaluate"]["model_path"],
                     src_path=parsed_toml["evaluate"]["src_path"],
+                    pred_path=parsed_toml["evaluate"]["pred_path"],
+                    gt_path=parsed_toml["evaluate"]["gt_path"],
                 ),
             )
         case "predict":
@@ -293,7 +296,11 @@ def parse_cli_args(args: argparse.Namespace) -> PipelineConfig:
         return PipelineConfig(
             step=args.step,
             evaluate_config=EvaluateConfig(
-                model_path=args.model_path, src_path=args.src_path
+                net=Net(args.net),
+                model_path=args.model_path,
+                src_path=args.src_path,
+                pred_path=args.pred_path,
+                gt_path=args.gt_path
             ),
         )
     elif args.step == "predict":

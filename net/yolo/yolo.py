@@ -5,40 +5,34 @@ import numpy as np
 import matplotlib.pyplot as plt
 from ultralytics import YOLO as uYOLO
 
+from schemas.pipeline_schemas import TrainConfig, PredictConfig
 
 class YOLO:
-    def __init__(self, config) -> None:
+    def __init__(self, config: TrainConfig|PredictConfig) -> None:
         self.config = config
         self.src_path = config.src_path
         self.dst_path = config.dst_path
         self.yaml_path = os.path.join(self.dst_path, "data.yaml")
-        # self.model_path = "./net/yolo/models/yolo11m-seg.pt"
-        self.model_path = config.model_path
 
-        os.makedirs(self.dst_path, exist_ok=True)
+        if isinstance(config, TrainConfig):
+            self.batch_size = config.batch_size
+            self.epochs = config.epochs
+            # Default segmentation model for training
+            self.model_path = "./net/yolo/models/yolo11m-seg.pt"
+        elif isinstance(config, PredictConfig):
+            self.model_path = config.model_path
+        else:
+            raise ValueError("Invalid config type. Allowed types are TrainConfig and PredictConfig.")
+
         self.create_yaml()
-
-    def predict(self) -> None:
-        # model = uYOLO(self.model_path)
-
-        # model.predict(
-        #     source=os.path.join(self.src_path, "images", "test"),
-        #     project=self.dst_path,
-        #     save_txt=True,
-        #     save_conf=True,
-        #     save_crop=False,
-        #     device="cuda",
-        # )
-        self.draw_predictions()
-        # self.visualize_predictions()
 
     def train(self) -> None:
         model = uYOLO(self.model_path)
 
         model.train(
             data=self.yaml_path,
-            epochs=self.config.epochs,
-            batch=self.config.batch_size,
+            epochs=self.epochs,
+            batch=self.batch_size,
             save=True,
             imgsz=256,
             project=self.dst_path,
@@ -46,8 +40,23 @@ class YOLO:
             verbose=True,
         )
 
+    def predict(self) -> None:
+        model = uYOLO(self.model_path)
+        model.predict(
+            source=os.path.join(self.src_path, "images", "test"),
+            project=self.dst_path,
+            save_txt=True,
+            save_conf=True,
+            save_crop=False,
+            device="cuda",
+        )
+
+        self.draw_predictions()
+        # self.visualize_predictions()
+
     def create_yaml(self) -> None:
-        """Crea el archivo data.yaml dentro del directorio de salida."""
+        """Creates a YAML file with the dataset configuration for YOLO training."""
+        os.makedirs(self.dst_path, exist_ok=True)
         data_yaml = {
             "path": "yolo_single",#self.src_path,
             "train": "images/train",
@@ -74,39 +83,39 @@ class YOLO:
         img_size = (256, 256)
 
         for image_file in image_files:
-            base_name = os.path.splitext(image_file)[0]  # Nombre sin extensión
+            base_name = os.path.splitext(image_file)[0]
             prediction_file = f"{base_name}.txt"
 
             image_path = os.path.join(image_dir, image_file)
             prediction_path = os.path.join(prediction_dir, prediction_file)
 
             if not os.path.exists(prediction_path):
-                print(f"Advertencia: No se encontró predicción para {image_file}")
+                print(f"Warning: Prediction not found for {image_file}")
                 continue
 
-            # Cargar la imagen
+            # Load the image
             img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
             if img is None:
-                print(f"Error: No se pudo cargar la imagen {image_path}")
+                print(f"Error: Could not load image {image_path}")
                 continue
 
-            img = cv2.resize(img, img_size)  # Redimensionar si es necesario
+            img = cv2.resize(img, img_size)  # Resize if necessary
             mask = np.zeros_like(img)
 
-            # Leer las predicciones
+            # Read the predictions
             with open(prediction_path, "r") as f:
                 lines = f.readlines()
 
             for line in lines:
                 values = list(map(float, line.split()))
 
-                # Si la línea tiene más de dos valores, se interpreta como coordenadas de segmentación
+                # If the line has more than two values, interpret as segmentation coordinates
                 if len(values) > 2:
                     class_id = int(values[0])
                     coords = values[1:]
 
                     if len(coords) % 2 != 0:
-                        print(f"Advertencia: Número impar de coordenadas en {line}, descartando último valor.")
+                        print(f"Warning: Odd number of coordinates in {line}, discarding last value.")
                         coords = coords[:-1]
 
                     if len(coords) >= 4:
@@ -115,14 +124,14 @@ class YOLO:
                         points[:, 1] *= img_size[0]
                         points = points.astype(np.int32)
 
-                        # Dibujar la segmentación en la máscara
+                        # Draw the segmentation on the mask
                         cv2.polylines(mask, [points], isClosed=True, color=255, thickness=1)
                         cv2.fillPoly(mask, [points], color=255)
 
-            # Guardar la imagen con la máscara
-            dst_path = os.path.join(output_dir, f"{base_name}_mask.png")
+            # Save the image with the mask
+            dst_path = os.path.join(output_dir, f"{base_name}.png")
             cv2.imwrite(dst_path, mask)
-            print(f"Guardada: {dst_path}")
+            print(f"Saved: {dst_path}")
 
 
     # def visualize_predictions(self):

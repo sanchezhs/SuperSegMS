@@ -1,20 +1,20 @@
-step = "predict"
+step = "train"
 
 [preprocess]
-net = "yolo"
+net = "unet"
 src_path = "datasets/MSLesSeg-Dataset"
-dst_path = "datasets/yolo_single"
+dst_path = "datasets/unet_single_x2"
 resize = "256x256"
-# super_scale = 2
+super_scale = 2
 # resize_method = "bilinear"
 split = 0.8
 
 [train]
-net = "yolo"
-src_path = "datasets/yolo_single"
-dst_path = "results/yolo_res_single"
-batch_size = 8
-epochs = 25
+net = "unet"
+src_path = "datasets/unet_single_x2"
+dst_path = "results/unet_res_single_x2"
+batch_size = 16
+epochs = 50
 learning_rate = 0.001
 limit_resources = true
 
@@ -26,11 +26,13 @@ limit_resources = true
 
 [predict]
 net = "unet"
+model_path = "results/unet/unet_res_single_x2/models/unet_model.pth"
 src_path = "datasets/unet_single"
-dst_path = "results/unet/unet_res_single/predictions"
-model_path = "results/unet/unet_res_single/models/unet_model.pth"
+dst_path = "results/unet/unet_res_single_x2/predictions_val"
 
 [evaluate]
 net = "unet"
-model_path = "unet_res_single/models/unet_model.pth"
-src_path = "results/datasets/unet_single"
+model_path = "results/unet/unet_res_single/models/unet_model.pth"
+src_path = "datasets/unet_single"
+pred_path = "results/unet/unet_res_single/predictions"
+gt_path = "datasets/unet_single/labels/val"

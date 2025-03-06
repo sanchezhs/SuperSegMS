@@ -5,7 +5,6 @@ from enum import Enum
 # (X,Y,Z) = (width, height, depth)
 NIFTI_SIZE = (182, 218)  # width, height
 
-
 class Net(Enum):
     UNET = "unet"
     YOLO = "yolo"
@@ -41,9 +40,11 @@ class TrainConfig:
 
 @dataclass
 class EvaluateConfig:
+    net: Net
     model_path: str
     src_path: str
-
+    pred_path: str
+    gt_path: str
 
 @dataclass
 class PredictConfig:
