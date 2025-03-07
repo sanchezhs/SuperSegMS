@@ -27,14 +27,15 @@ class YOLO:
         self.create_yaml()
 
     def train(self) -> None:
+        imgsz = self._get_image_size()
         model = uYOLO(self.model_path)
-
+        
         model.train(
             data=self.yaml_path,
             epochs=self.epochs,
             batch=self.batch_size,
             save=True,
-            imgsz=256,
+            imgsz=imgsz,
             project=self.dst_path,
             device="cuda",
             verbose=True,
@@ -57,8 +58,11 @@ class YOLO:
     def create_yaml(self) -> None:
         """Creates a YAML file with the dataset configuration for YOLO training."""
         os.makedirs(self.dst_path, exist_ok=True)
+        # Yolo ultralytics adds an additional "datasets" folder to the path
+        parts = self.src_path.split("/")
+        path = "/".join(parts[-1:])
         data_yaml = {
-            "path": "yolo_single",#self.src_path,
+            "path": path,
             "train": "images/train",
             "val": "images/val",
             "nc": 1,
@@ -70,17 +74,16 @@ class YOLO:
             yaml.dump(data_yaml, f, default_flow_style=False)
 
     def draw_predictions(self) -> None:
-
-        output_dir = "yolo_res_single/predictions/masks/"
+        output_dir = os.path.join(self.dst_path, "predict", "masks")
 
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
-        image_dir = "datasets/yolo_single/images/test/"
-        prediction_dir = "yolo_res_single/predictions/predict/labels/"
+        image_dir = os.path.join(self.src_path, "images", "test")
+        prediction_dir = os.path.join(self.dst_path, "predict", "labels")
         image_files = sorted([f for f in os.listdir(image_dir) if f.endswith((".png", ".jpg"))])
-        prediction_files = sorted([f for f in os.listdir(prediction_dir) if f.endswith(".txt")])
-        img_size = (256, 256)
+        img_size = self._get_image_size()
+        img_size = (img_size, img_size)
 
         for image_file in image_files:
             base_name = os.path.splitext(image_file)[0]
@@ -133,6 +136,11 @@ class YOLO:
             cv2.imwrite(dst_path, mask)
             print(f"Saved: {dst_path}")
 
+    def _get_image_size(self) -> int:
+        """Get the image size from the data.yaml file."""
+        img = self.src_path + "/images/test/P54.png"
+        img = cv2.imread(img)
+        return img.shape[0]
 
     # def visualize_predictions(self):
     #     yolo_predictions_path = "yolo_res_single/predictions/predict/labels"
