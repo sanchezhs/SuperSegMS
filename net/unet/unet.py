@@ -4,8 +4,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader, Dataset
 import segmentation_models_pytorch as smp
+import matplotlib.pyplot as plt
+from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 from typing import Literal
 
@@ -89,6 +90,9 @@ class UNet:
                 self.optimizer, mode="min", factor=0.1, patience=5, verbose=True
             )
 
+            self.train_losses = []
+            self.val_losses = []
+
         elif mode == "evaluate":
             assert isinstance(config, EvaluateConfig), (
                 "Evaluate mode requires an EvaluateConfig"
@@ -146,6 +150,10 @@ class UNet:
             val_loss = self.validate()
             self.scheduler.step(val_loss)
 
+            avg_train_loss = epoch_loss / len(self.train_loader)
+            self.train_losses.append(avg_train_loss)
+            self.val_losses.append(val_loss)
+
             print(
                 f"Epoch [{epoch + 1}/{self.epochs}], Loss: {epoch_loss / len(self.train_loader):.4f}, Val Loss: {val_loss:.4f}"
             )
@@ -154,6 +162,9 @@ class UNet:
                 best_val_loss = val_loss
                 torch.save(self.model.state_dict(), self.model_path)
                 print(f"New best model saved in {self.model_path}")
+        
+        self._plot_loss_curve()
+
 
     def validate(self) -> float:
         self.model.eval()
@@ -178,7 +189,6 @@ class UNet:
             with torch.no_grad():
                 pred_masks = torch.sigmoid(self.model(images)).cpu().numpy().squeeze()
 
-            # Calcular métricas
             iou, dice, precision, recall, f1_score, specificity = (
                 self._compute_all_metrics(pred_masks, masks.cpu().numpy().squeeze())
             )
@@ -194,7 +204,6 @@ class UNet:
                 }
             )
 
-        # Calcular promedios
         avg_metrics = {
             key: np.mean([m[key] for m in metrics_list]) for key in metrics_list[0]
         }
@@ -267,3 +276,15 @@ class UNet:
             raise ValueError("Invalid format. Only 'csv' is supported.")
 
         print(f"Metrics saved in {self.pred_path}/metrics.csv")
+
+    def plot_loss_curve(self) -> None:
+        plt.figure(figsize=(10, 5))
+        plt.plot(self.train_losses, label='Training Loss')
+        plt.plot(self.val_losses, label='Validation Loss')
+        plt.xlabel('Epochs')
+        plt.ylabel('Loss')
+        plt.title('Training and Validation Loss Curve')
+        plt.legend()
+        plt.grid()
+        plt.savefig(os.path.join(self.dst_path, "loss_curve.png"))
+        print(f"Loss curve saved at {self.dst_path}/loss_curve.png")
