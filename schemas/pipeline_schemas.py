@@ -113,7 +113,7 @@ class SegmentationMetrics:
 
     def __str__(self):
         return (
-            f"Imagen: {self.image_name}, IoU: {self.iou:.4f}, Dice: {self.dice_score:.4f}, "
+            f"Image: {self.image_name}, IoU: {self.iou:.4f}, Dice: {self.dice_score:.4f}, "
             f"Precision: {self.precision:.4f}, Recall: {self.recall:.4f}, F1: {self.f1_score:.4f}, "
             f"Specificity: {self.specificity if self.specificity else 'N/A'}, "
             f"Inference Time: {self.inference_time if self.inference_time else 'N/A'}s"

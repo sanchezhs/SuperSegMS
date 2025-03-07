@@ -1,4 +1,4 @@
-step = "train"
+step = "predict"
 
 [preprocess]
 net = "unet"
@@ -27,8 +27,8 @@ limit_resources = true
 [predict]
 net = "unet"
 model_path = "results/unet/unet_res_single_x2/models/unet_model.pth"
-src_path = "datasets/unet_single"
-dst_path = "results/unet/unet_res_single_x2/predictions_val"
+src_path = "datasets/unet_single_x2"
+dst_path = "results/unet/unet_res_single_x2/predictions"
 
 [evaluate]
 net = "unet"
