@@ -38,6 +38,41 @@ def split_patients(patients: list[str], test_size: Optional[float] = 0.2) -> tup
     )
     return set(train_patients), set(val_patients)
 
+def get_top_lesion_slices(flair_data, mask_data, num_slices=3, min_area_threshold=0):
+    """
+    Finds the `num_slices` with the largest lesion areas and returns the corresponding full FLAIR slices.
+    
+    Parameters:
+    - mask_data: Numpy array containing the lesion mask data
+    - flair_data: Numpy array containing the FLAIR image data
+    - num_slices: Number of slices with the largest lesion areas to select
+    - min_area_threshold: Minimum area threshold to consider a lesion significant
+    
+    Returns:
+    - flair_slices: List of NumPy arrays containing the selected full FLAIR slices
+    - selected_indices: List of indices corresponding to the selected slices
+    """
+    assert np.all(np.isin(mask_data, [0, 1])), "Error: Mask data should only contain 0s and 1s"
+    assert mask_data.shape == flair_data.shape, "Error: Mask and FLAIR dimensions do not match"
+    
+    lesion_areas = []
+    for i in range(mask_data.shape[2]):
+        slice_sum = np.sum(mask_data[:, :, i] > 0)
+        lesion_areas.append((i, slice_sum))
+    lesion_areas = [t for t in lesion_areas if t[1] > min_area_threshold]
+    
+    if not lesion_areas:
+        middle_idx = mask_data.shape[2] // 2
+        return [flair_data[:, :, middle_idx]], [middle_idx]
+    
+    lesion_areas.sort(key=lambda x: x[1], reverse=True)
+    selected_slices = lesion_areas[:min(num_slices, len(lesion_areas))]
+    selected_indices = [idx for idx, _ in selected_slices]
+    
+    flair_slices = [flair_data[:, :, idx] for idx in selected_indices]
+    
+    return flair_slices, selected_indices
+
 
 def save_image(
     img: np.ndarray,
@@ -104,71 +139,57 @@ def unet_process_train_val(
 
             if not os.path.exists(flair_path) or not os.path.exists(mask_path):
                 continue
-
-            # Load the Flair image
+            
+            # Load the Flair and mask images
             flair_nifti = nib.load(flair_path)
             flair_image = flair_nifti.get_fdata()
-
             mask_nifti = nib.load(mask_path)
             mask_image = mask_nifti.get_fdata()
-
-            middle_slice_idx = flair_image.shape[2] // 2
-            flair_slice = flair_image[:, :, middle_slice_idx]
-            img_filename = f"{patient}_{timepoint}_{middle_slice_idx}.png"
-            save_image(
-                flair_slice,
-                os.path.join(images_dir, img_filename),
-                is_flair=True,
-                resize=resize,
-                super_scale=super_scale,
-                resize_method=resize_method,
+            if patient == "P3" and timepoint == "T3":
+                pass
+            _, best_slice_idxs = get_top_lesion_slices(
+                flair_image, mask_image,
             )
 
-            mask_slice = mask_image[:, :, middle_slice_idx]
-            label_filename = f"{patient}_{timepoint}_{middle_slice_idx}.png"
-            save_image(
-                mask_slice,
-                os.path.join(labels_dir, label_filename),
-                is_flair=False,
-                resize=resize,
-                super_scale=super_scale,
-                resize_method=resize_method,
-            )
+            for best_slice_idx in best_slice_idxs:
+                img_filename = f"{patient}_{timepoint}_{best_slice_idx}.png"
+                save_image(
+                    flair_image[:, :, best_slice_idx],
+                    os.path.join(images_dir, img_filename),
+                    is_flair=True,
+                    resize=resize,
+                    super_scale=super_scale,
+                    resize_method=resize_method,
+                )
+                mask_img_filename = f"{patient}_{timepoint}_{best_slice_idx}.png"
+                save_image(
+                    mask_image[:, :, best_slice_idx],
+                    os.path.join(labels_dir, mask_img_filename),
+                    is_flair=False,
+                    resize=resize,
+                    super_scale=super_scale,
+                    resize_method=resize_method,
+                )
 
-            # Select the best slices
-            # We will only consider slices with more than 1% of lesion
-            # filtered_slices = []
-            # for i in range(flair_image.shape[2]):
-            #     lesion_mask = mask_image[:, :, i]
-            #     lesion_ratio = np.sum(lesion_mask > 0) / lesion_mask.size
+                # flair_img_filename = f"{patient}_{timepoint}_{best_slice_idx}.png"
+                # save_image(
+                #     best_flair_slice,
+                #     os.path.join(images_dir, flair_img_filename),
+                #     is_flair=True,
+                #     resize=resize,
+                #     super_scale=super_scale,
+                #     resize_method=resize_method,
+                # )
 
-            #     if lesion_ratio > 0.01:
-            #         filtered_slices.append(i)
-
-            # if len(filtered_slices) == 0:
-            #     continue
-
-            # for i in filtered_slices:
-            #     flair_slice = flair_image[:, :, i]
-            #     img_filename = f"{patient}_{timepoint}_{i}.png"
-            #     save_image(
-            #         flair_slice,
-            #         os.path.join(images_dir, img_filename),
-            #         is_flair=True,
-            #         resize=resize,
-            #         super_scale=super_scale,
-            #         resize_method=resize_method,
-            #     )
-            #     mask_slice = mask_image[:, :, i]
-            #     label_filename = f"{patient}_{timepoint}_{i}.png"
-            #     save_image(
-            #         mask_slice,
-            #         os.path.join(labels_dir, label_filename),
-            #         is_flair=False,
-            #         resize=resize,
-            #         super_scale=super_scale,
-            #         resize_method=resize_method,
-            #     )
+                # mask_img_filename = f"{patient}_{timepoint}_{best_slice_idx}.png"
+                # save_image(
+                #     mask_image[:, :, best_slice_idx],
+                #     os.path.join(labels_dir, mask_img_filename),
+                #     is_flair=False,
+                #     resize=resize,
+                #     super_scale=super_scale,
+                #     resize_method=resize_method,
+                # )
 
 
 def unet_process_test(
@@ -196,7 +217,7 @@ def unet_process_test(
 
         best_slice_idx = (
             flair_image.shape[2] // 2
-        )  # np.argmax(np.sum(flair_image, axis=(0, 1)))
+        )
         flair_slice = flair_image[:, :, best_slice_idx]
         img_filename = f"{patient}.png"
         save_image(
@@ -210,7 +231,11 @@ def unet_process_test(
 
 
 def yolo_process_train_val(
-    src_path: str, dst_path: str, resize: Optional[tuple[int, int]], super_scale: Optional[int], split: float
+    src_path: str,
+    dst_path: str,
+    resize: Optional[tuple[int, int]],
+    super_scale: Optional[int],
+    split: float,
 ) -> None:
     base_path_train = f"{src_path}/train"
     images_train_dir, images_val_dir, _, labels_train_dir, labels_val_dir = create_dirs(
@@ -242,31 +267,36 @@ def yolo_process_train_val(
 
             flair_nifti = nib.load(flair_path)
             flair_image = flair_nifti.get_fdata()
-
             mask_nifti = nib.load(mask_path)
             mask_image = mask_nifti.get_fdata()
 
-            middle_slice_idx = flair_image.shape[2] // 2
-            flair_slice = flair_image[:, :, middle_slice_idx]
-            img_filename = f"{patient}_{timepoint}_{middle_slice_idx}.png"
-            save_image(
-                flair_slice,
-                os.path.join(images_dir, img_filename),
-                is_flair=True,
-                resize=resize,
-                super_scale=super_scale,
+            _, best_slice_idxs = get_top_lesion_slices(
+                flair_image, mask_image
             )
 
-            mask_slice = mask_image[:, :, middle_slice_idx]
-            label_filename = f"{patient}_{timepoint}_{middle_slice_idx}.txt"
-            yolo_labels = mask_to_yolo(mask_slice, resize, super_scale)
-            if yolo_labels:
-                with open(os.path.join(labels_dir, label_filename), "w") as f:
-                    f.write("\n".join(yolo_labels))
+            for best_slice_idx in best_slice_idxs:
+                img_filename = f"{patient}_{timepoint}_{best_slice_idx}.png"
+                save_image(
+                    flair_image[:, :, best_slice_idx],
+                    os.path.join(images_dir, img_filename),
+                    is_flair=True,
+                    resize=resize,
+                    super_scale=super_scale,
+                )
+                
+                mask_img_filename = f"{patient}_{timepoint}_{best_slice_idx}.txt"
+                yolo_labels = mask_to_yolo(mask_image[:, : ,best_slice_idx], resize, super_scale)
+                
+                if yolo_labels:
+                    with open(os.path.join(labels_dir, mask_img_filename), "w") as f:
+                        f.write("\n".join(yolo_labels))
 
 
 def yolo_process_test(
-    src_path: str, dst_path: str, resize: Optional[tuple[int, int]], super_scale: Optional[int]
+    src_path: str,
+    dst_path: str,
+    resize: Optional[tuple[int, int]],
+    super_scale: Optional[int],
 ) -> None:
     base_path_test = f"{src_path}/test"
     _, _, images_test_dir, _, _ = create_dirs(dst_path)
@@ -297,11 +327,13 @@ def yolo_process_test(
 
 
 def mask_to_yolo(
-    mask: np.ndarray, resize: Optional[tuple[int, int]] = None, super_scale: Optional[int] = None
+    mask: np.ndarray,
+    resize: Optional[tuple[int, int]] = None,
+    super_scale: Optional[int] = None,
 ) -> list[str]:
     """Converts a binary mask to YOLO format."""
     if resize is not None:
-        scaled_resize = (resize[1]*super_scale, resize[0]*super_scale)
+        scaled_resize = (resize[1] * super_scale, resize[0] * super_scale)
         mask = cv2.resize(mask, scaled_resize, interpolation=cv2.INTER_NEAREST)
         # if super_scale:
         #     mask = apply_fsrcnn(mask, super_scale)

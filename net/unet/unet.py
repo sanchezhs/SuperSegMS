@@ -184,7 +184,7 @@ class UNet:
         self.model.eval()
         metrics_list = []
 
-        for images, masks in self.val_loader:
+        for images, masks, _ in self.val_loader:
             images, masks = images.to(self.device), masks.to(self.device)
             with torch.no_grad():
                 pred_masks = torch.sigmoid(self.model(images)).cpu().numpy().squeeze()
@@ -277,7 +277,7 @@ class UNet:
 
         print(f"Metrics saved in {self.pred_path}/metrics.csv")
 
-    def plot_loss_curve(self) -> None:
+    def _plot_loss_curve(self) -> None:
         plt.figure(figsize=(10, 5))
         plt.plot(self.train_losses, label='Training Loss')
         plt.plot(self.val_losses, label='Validation Loss')

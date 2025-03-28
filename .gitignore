@@ -1,4 +1,4 @@
-.vscode
+.vscode/
 .mypy_cache/
 *.pt
 *.pth
