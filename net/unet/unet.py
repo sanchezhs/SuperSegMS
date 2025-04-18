@@ -1,3 +1,4 @@
+import time
 import os
 import cv2
 import numpy as np
@@ -6,12 +7,13 @@ import torch.nn as nn
 import torch.optim as optim
 import segmentation_models_pytorch as smp
 import matplotlib.pyplot as plt
+import json
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
-from typing import Literal
+from typing import Dict, List, Literal
 from loguru import logger
 
-from schemas.pipeline_schemas import TrainConfig, EvaluateConfig, PredictConfig
+from schemas.pipeline_schemas import TrainConfig, EvaluateConfig, PredictConfig, SegmentationMetrics
 
 
 class MRIDataset(Dataset):
@@ -73,7 +75,7 @@ class UNet:
             self.learning_rate = config.learning_rate
             self.dst_path = config.dst_path
             self.model_name = self.dst_path.split("/")[-1]
-            self.model_path = os.path.join(self.dst_path, "models", self.model_name, ".pth")
+            self.model_path = os.path.join(self.dst_path, "models", f"{self.model_name}.pth")
 
             os.makedirs(self.dst_path, exist_ok=True)
             os.makedirs(os.path.join(self.dst_path, "models"), exist_ok=True)
@@ -112,6 +114,11 @@ class UNet:
             self.pred_path = config.pred_path
             self.gt_path = config.gt_path
 
+            if not os.path.exists(self.pred_path):
+                raise FileNotFoundError(
+                    f"Prediction directory {self.pred_path} does not exist. Did you run the prediction step?"
+                )
+
             self.model = smp.Unet(
                 encoder_name=self.encoder_name, in_channels=1, classes=1, activation=None
             ).to(self.device)
@@ -140,6 +147,8 @@ class UNet:
             )
 
     def train(self) -> None:
+        logger.info(f"Training model {self.model_name}")
+
         best_val_loss = float("inf")
 
         for epoch in range(self.epochs):
@@ -188,29 +197,29 @@ class UNet:
         return val_loss / len(self.val_loader)
 
     def evaluate(self) -> None:
+        logger.info(f"Evaluating model {self.model_path}")
+
         self.model.load_state_dict(
             torch.load(self.model_path, map_location=self.device)
         )
         self.model.eval()
         metrics_list = []
 
-        for images, masks, _ in self.val_loader:
+        for images, masks, _ in tqdm(self.val_loader, desc="Evaluating"):
             images, masks = images.to(self.device), masks.to(self.device)
-            with torch.no_grad():
-                pred_masks = torch.sigmoid(self.model(images)).cpu().numpy().squeeze()
-
+            pred_masks, inference_time = self._infer_and_time(images)
             iou, dice, precision, recall, f1_score, specificity = (
                 self._compute_all_metrics(pred_masks, masks.cpu().numpy().squeeze())
             )
-
             metrics_list.append(
                 {
-                    "IoU": iou,
-                    "Dice Score": dice,
-                    "Precision": precision,
-                    "Recall": recall,
-                    "F1 Score": f1_score,
-                    "Specificity": specificity,
+                    "iou": iou,
+                    "dice_score": dice,
+                    "precision": precision,
+                    "recall": recall,
+                    "f1_score": f1_score,
+                    "specificity": specificity,
+                    "inference_time": inference_time,
                 }
             )
 
@@ -218,20 +227,16 @@ class UNet:
             key: np.mean([m[key] for m in metrics_list]) for key in metrics_list[0]
         }
 
-        self._write_metrics(avg_metrics, format="csv")
-        logger.info(f"Metrics saved in {self.pred_path}/metrics.csv")
-
-        print("\n".join([f"{k}: {v:.4f}" for k, v in avg_metrics.items()]))
-
-        # print(f"Average IoU: {avg_metrics['IoU']:.4f}")
-        # print(f"Average Dice Score: {avg_metrics['Dice Score']:.4f}")
-        # print(f"Average Precision: {avg_metrics['Precision']:.4f}")
-        # print(f"Average Recall: {avg_metrics['Recall']:.4f}")
-        # print(f"Average F1 Score: {avg_metrics['F1 Score']:.4f}")
-        # print(f"Average Specificity: {avg_metrics['Specificity']:.4f}")
+        logger.info(f"Metrics saved in {self.pred_path}/metrics.json")
+        self._write_metrics(SegmentationMetrics(**avg_metrics), format="json")
+        logger.info("Average metrics:")
+        logger.info(
+            "\n\t- ".join([f"{k}: {v:.4f}" for k, v in avg_metrics.items()])
+        )
 
     def predict(self) -> None:
         logger.info(f"Predicting images in {self.src_path} and saving to {self.dst_path}")
+
         self.model.load_state_dict(
             torch.load(self.model_path, map_location=self.device)
         )
@@ -280,16 +285,17 @@ class UNet:
 
         return iou, dice, precision, recall, f1_score, specificity
 
-    def _write_metrics(self, metrics: dict, format: str = "csv") -> None:
+    def _write_metrics(self, metrics: SegmentationMetrics, format: str = "json") -> None:
         if format == "csv":
             with open(os.path.join(self.pred_path, "metrics.csv"), "w") as f:
                 f.write("Metric,Value\n")
                 for key, value in metrics.items():
                     f.write(f"{key},{value}\n")
         else:
-            raise ValueError("Invalid format. Only 'csv' is supported.")
+            with open(os.path.join(self.pred_path, "metrics.json"), "w") as f:
+                json.dump(metrics.as_dict(), f, indent=4)
 
-        logger.info(f"Metrics saved in {self.pred_path}/metrics.csv")
+        logger.info(f"Metrics saved in {self.pred_path}/metrics.{format}")
 
     def _plot_loss_curve(self) -> None:
         plt.figure(figsize=(10, 5))
@@ -303,7 +309,41 @@ class UNet:
         plt.savefig(os.path.join(self.dst_path, "loss_curve.png"))
         logger.info(f"Loss curve saved at {self.dst_path}/loss_curve.png")
 
-    def to_dict(self) -> dict:
+    def _infer_and_time(self, image: torch.Tensor) -> tuple[np.ndarray, float]:
+        start = time.perf_counter()
+        with torch.no_grad():
+            pred = torch.sigmoid(self.model(image)).cpu().numpy().squeeze()
+        elapsed = time.perf_counter() - start
+        return pred, elapsed
+
+    def _plot_metrics(self, metrics_list: List[Dict[str, float]]) -> None:
+        output_dir = self.pred_path
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Compute average of each metric
+        avg_metrics = {metric: np.mean([m[metric] for m in metrics_list]) for metric in metrics_list[0]}
+
+        # Prepare data for the table
+        table_data = [[metric.replace("_", " ").title(), value] for metric, value in avg_metrics.items()]
+        headers = ["Metric", "Average Value"]
+
+        # Create a figure for the table
+        fig, ax = plt.subplots(figsize=(8, 4))
+        ax.axis("tight")
+        ax.axis("off")
+        table = ax.table(cellText=table_data, colLabels=headers, loc="center", cellLoc="center")
+        table.auto_set_font_size(False)
+        table.set_fontsize(10)
+        table.auto_set_column_width(col=list(range(len(headers))))
+
+        # Save the table as an image
+        table_path = os.path.join(output_dir, "avg_metrics_table.png")
+        plt.savefig(table_path, bbox_inches="tight")
+        plt.close()
+
+        logger.info(f"Average metrics table saved at {table_path}")
+
+    def _to_dict(self) -> dict:
         """Convert the UNet instance to a dictionary."""
         return {
             "src_path": self.src_path,
