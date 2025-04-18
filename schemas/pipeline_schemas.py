@@ -1,14 +1,24 @@
 from typing import Optional
-from dataclasses import dataclass
-from enum import Enum
+from dataclasses import dataclass, asdict
+from enum import IntEnum, Enum
+from loguru import logger
 
 # (X,Y,Z) = (width, height, depth)
 NIFTI_SIZE = (182, 218)  # width, height
+DEF_RESIZE = (320, 320)  # width, height
 
 class Net(Enum):
     UNET = "unet"
     YOLO = "yolo"
 
+class SuperScale(IntEnum):
+    NONE = 1
+    TWO = 2
+    THREE = 3
+    EIGHT = 8
+
+    def __str__(self):
+        return str(self.value)
 
 class ResizeMethod(Enum):
     NEAREST = "nearest"
@@ -21,11 +31,17 @@ class PreprocessConfig:
     net: Net
     src_path: str
     dst_path: str
+    super_scale: SuperScale
+    resize: tuple[int, int]
+    top_slices: int
     split: float = 0.8
-    resize: Optional[tuple[int, int]] = None
     resize_method: Optional[ResizeMethod] = None
-    super_scale: Optional[int] = None
 
+    def as_dict(self) -> dict:
+        """Convert the PreprocessConfig to a dictionary."""
+        d = asdict(self)
+        d["net"] = self.net.value
+        return d
 
 @dataclass
 class TrainConfig:
@@ -37,6 +53,11 @@ class TrainConfig:
     learning_rate: float = 1e-3
     limit_resources: bool = False
 
+    def as_dict(self) -> dict:
+        """Convert the TrainConfig to a dictionary."""
+        d = asdict(self)
+        d["net"] = self.net.value
+        return d
 
 @dataclass
 class EvaluateConfig:
@@ -46,12 +67,24 @@ class EvaluateConfig:
     pred_path: str
     gt_path: str
 
+    def as_dict(self) -> dict:
+        """Convert the EvaluateConfig to a dictionary."""
+        d = asdict(self)
+        d["net"] = self.net.value
+        return d
+
 @dataclass
 class PredictConfig:
     net: Net
     model_path: str
     src_path: str
     dst_path: str
+
+    def as_dict(self) -> dict:
+        """Convert the PredictConfig to a dictionary."""
+        d = asdict(self)
+        d["net"] = self.net.value
+        return d
 
 
 @dataclass
@@ -60,7 +93,8 @@ class PipelineConfig:
     This class can only hold one of the following configurations:
     - preprocess_config
     - train_config
-    ...
+    - evaluate_config
+    - predict_config
     """
     step: str
     preprocess_config: Optional[PreprocessConfig] = None
@@ -94,11 +128,15 @@ class PipelineConfig:
     def print_config(self) -> None:
         config = self.active_config
         if config:
-            print(f"{self.step.capitalize()} config:")
-            print(config)
+            logger.info(f"Active configuration for {self.step} step:")
+            for key, value in config.__dict__.items():
+                logger.info(f"  {key}: {value}")
         else:
             raise ValueError("Invalid configuration")
 
+    def as_dict(self) -> dict:
+        """Convert the Pipeline to a dictionary."""
+        return asdict(self)
 
 @dataclass
 class SegmentationMetrics:
@@ -118,3 +156,7 @@ class SegmentationMetrics:
             f"Specificity: {self.specificity if self.specificity else 'N/A'}, "
             f"Inference Time: {self.inference_time if self.inference_time else 'N/A'}s"
         )
+
+    def as_dict(self) -> dict:
+        """Convert the SegmentationMetrics to a dictionary."""
+        return asdict(self)

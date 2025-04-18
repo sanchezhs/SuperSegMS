@@ -8,6 +8,7 @@ import argparse
 import os
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+from loguru import logger
 
 WEIGHTS_PATH = {
     2: "net/FSRCNN/models/fsrcnn_x2.pth",
@@ -177,7 +178,7 @@ if __name__ == "__main__":
     if not os.path.exists(WEIGHTS_PATH[args.scale]):
         raise FileNotFoundError(f"Model weights not found at '{args.scale}'")
 
-    print(f"Scaling images by factor of {args.scale}x")
+    logger.info(f"Scaling images by factor of {args.scale}x")
 
     # fsrcnn_model = load_fsrcnn_model(args.scale)
     fsrcnn_model = _FSRCNN(scale_factor=args.scale)

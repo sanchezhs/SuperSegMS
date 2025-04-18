@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 from typing import Literal
+from loguru import logger
 
 from schemas.pipeline_schemas import TrainConfig, EvaluateConfig, PredictConfig
 
@@ -17,8 +18,15 @@ class MRIDataset(Dataset):
     def __init__(self, img_dir: str, mask_dir: str = None):
         self.img_dir = img_dir
         self.mask_dir = mask_dir
+        self.check_directories()
         self.images = sorted(os.listdir(img_dir))
         self.masks = sorted(os.listdir(mask_dir)) if mask_dir else None
+
+    def check_directories(self):
+        if not os.path.exists(self.img_dir):
+            raise FileNotFoundError(f"Image directory {self.img_dir} does not exist.")
+        if self.mask_dir and not os.path.exists(self.mask_dir):
+            raise FileNotFoundError(f"Mask directory {self.mask_dir} does not exist.")
 
     def __len__(self) -> int:
         return len(self.images)
@@ -47,6 +55,7 @@ class UNet:
     ) -> None:
         self.mode = mode
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.encoder_name = "resnet152"
 
         if mode == "train":
             assert isinstance(config, TrainConfig), "Train mode requires a TrainConfig"
@@ -63,7 +72,8 @@ class UNet:
             self.epochs = config.epochs
             self.learning_rate = config.learning_rate
             self.dst_path = config.dst_path
-            self.model_path = os.path.join(self.dst_path, "models", "unet_model.pth")
+            self.model_name = self.dst_path.split("/")[-1]
+            self.model_path = os.path.join(self.dst_path, "models", self.model_name, ".pth")
 
             os.makedirs(self.dst_path, exist_ok=True)
             os.makedirs(os.path.join(self.dst_path, "models"), exist_ok=True)
@@ -81,7 +91,7 @@ class UNet:
                 )
             )
             self.model = smp.Unet(
-                encoder_name="resnet34", in_channels=1, classes=1, activation=None
+                encoder_name=self.encoder_name, in_channels=1, classes=1, activation=None
             ).to(self.device)
 
             self.criterion = nn.BCEWithLogitsLoss()
@@ -103,7 +113,7 @@ class UNet:
             self.gt_path = config.gt_path
 
             self.model = smp.Unet(
-                encoder_name="resnet34", in_channels=1, classes=1, activation=None
+                encoder_name=self.encoder_name, in_channels=1, classes=1, activation=None
             ).to(self.device)
             self._load_model()
 
@@ -122,7 +132,7 @@ class UNet:
             self.dst_path = config.dst_path
             self.model_path = config.model_path
             self.model = smp.Unet(
-                encoder_name="resnet34", in_channels=1, classes=1, activation=None
+                encoder_name=self.encoder_name, in_channels=1, classes=1, activation=None
             ).to(self.device)
             self._load_model()
             self.test_loader = DataLoader(
@@ -154,14 +164,14 @@ class UNet:
             self.train_losses.append(avg_train_loss)
             self.val_losses.append(val_loss)
 
-            print(
+            logger.info(
                 f"Epoch [{epoch + 1}/{self.epochs}], Loss: {epoch_loss / len(self.train_loader):.4f}, Val Loss: {val_loss:.4f}"
             )
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 torch.save(self.model.state_dict(), self.model_path)
-                print(f"New best model saved in {self.model_path}")
+                logger.info(f"New best model saved in {self.model_path}")
         
         self._plot_loss_curve()
 
@@ -209,15 +219,19 @@ class UNet:
         }
 
         self._write_metrics(avg_metrics, format="csv")
+        logger.info(f"Metrics saved in {self.pred_path}/metrics.csv")
 
-        print(f"Average IoU: {avg_metrics['IoU']:.4f}")
-        print(f"Average Dice Score: {avg_metrics['Dice Score']:.4f}")
-        print(f"Average Precision: {avg_metrics['Precision']:.4f}")
-        print(f"Average Recall: {avg_metrics['Recall']:.4f}")
-        print(f"Average F1 Score: {avg_metrics['F1 Score']:.4f}")
-        print(f"Average Specificity: {avg_metrics['Specificity']:.4f}")
+        print("\n".join([f"{k}: {v:.4f}" for k, v in avg_metrics.items()]))
+
+        # print(f"Average IoU: {avg_metrics['IoU']:.4f}")
+        # print(f"Average Dice Score: {avg_metrics['Dice Score']:.4f}")
+        # print(f"Average Precision: {avg_metrics['Precision']:.4f}")
+        # print(f"Average Recall: {avg_metrics['Recall']:.4f}")
+        # print(f"Average F1 Score: {avg_metrics['F1 Score']:.4f}")
+        # print(f"Average Specificity: {avg_metrics['Specificity']:.4f}")
 
     def predict(self) -> None:
+        logger.info(f"Predicting images in {self.src_path} and saving to {self.dst_path}")
         self.model.load_state_dict(
             torch.load(self.model_path, map_location=self.device)
         )
@@ -233,7 +247,7 @@ class UNet:
             output_path = os.path.join(self.dst_path, image_name[0])
             cv2.imwrite(output_path, pred_img)
 
-        print("Predictions saved in test directory.")
+        logger.info(f"Predictions saved in test directory: {self.dst_path}")
 
     def _load_model(self) -> None:
         """Load pre-trained model"""
@@ -275,7 +289,7 @@ class UNet:
         else:
             raise ValueError("Invalid format. Only 'csv' is supported.")
 
-        print(f"Metrics saved in {self.pred_path}/metrics.csv")
+        logger.info(f"Metrics saved in {self.pred_path}/metrics.csv")
 
     def _plot_loss_curve(self) -> None:
         plt.figure(figsize=(10, 5))
@@ -287,4 +301,16 @@ class UNet:
         plt.legend()
         plt.grid()
         plt.savefig(os.path.join(self.dst_path, "loss_curve.png"))
-        print(f"Loss curve saved at {self.dst_path}/loss_curve.png")
+        logger.info(f"Loss curve saved at {self.dst_path}/loss_curve.png")
+
+    def to_dict(self) -> dict:
+        """Convert the UNet instance to a dictionary."""
+        return {
+            "src_path": self.src_path,
+            "dst_path": self.dst_path,
+            "model_name": self.model_name,
+            "model_path": self.model_path,
+            "batch_size": self.batch_size,
+            "epochs": self.epochs,
+            "learning_rate": self.learning_rate,
+        }

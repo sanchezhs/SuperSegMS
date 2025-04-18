@@ -3,6 +3,7 @@ import os
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
+from loguru import logger
 
 # Global index to track which patient is displayed
 current_index = 0
@@ -11,12 +12,12 @@ patient_ids = []
 def load_image(image_path, is_mask=False):
     """Load an image as grayscale."""
     if not os.path.exists(image_path):
-        print(f"❌ Error: File not found -> {image_path}")
+        logger.warning(f"❌ Error: File not found -> {image_path}")
         return None
     
     img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
     if img is None:
-        print(f"❌ Error: Unable to read image -> {image_path}")
+        logger.warning(f"❌ Error: Unable to read image -> {image_path}")
         return None
 
     if is_mask:
@@ -54,11 +55,11 @@ def update_display(fig, axes, mask_dir, mri_dir):
     overlay = overlay_mask_on_mri(mri, mask)
 
     axes[0].imshow(mri, cmap="gray")
-    axes[0].set_title(f"MRI - Patient {patient_id}")
+    axes[0].set_title("MRI")
     axes[0].axis("off")
 
     axes[1].imshow(overlay)
-    axes[1].set_title(f"Overlay - Patient {patient_id}")
+    axes[1].set_title("Predicted Mask Overlay")
     axes[1].axis("off")
 
     fig.suptitle(f"Patient {patient_id}", fontsize=14)
@@ -96,6 +97,7 @@ def compare_directories(mask_dir, mri_dir):
     fig.canvas.mpl_connect("key_press_event", lambda event: on_key(event, fig, axes, mask_dir, mri_dir))
     plt.show()
 
+# python steps/evaluation/compare_predictions.py results/unet/unet_max_masks/predictions datasets/unet_max_masks/images/test
 if __name__ == "__main__":
     if len(sys.argv) != 3:
         print("Usage: python compare.py pred_mask_dir mri_dir")
@@ -108,5 +110,5 @@ if __name__ == "__main__":
         print(f"❌ Error: One of the provided paths is not a directory -> {mask_dir}, {mri_dir}")
         sys.exit(1)
 
-    print(f"📂 Comparing masks from '{mask_dir}' with MRIs from '{mri_dir}'")
+    print(f"📂 Comparing predicted masks from '{mask_dir}' with ground truth MRIs from '{mri_dir}'")
     compare_directories(mask_dir, mri_dir)

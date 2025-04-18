@@ -3,6 +3,7 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+from loguru import logger
 
 def draw_yolo_labels(image_path: str, label_path: str, class_names: list[str] = None) -> None:
     """
@@ -18,7 +19,7 @@ def draw_yolo_labels(image_path: str, label_path: str, class_names: list[str] = 
     # Load the image
     image = cv2.imread(image_path)
     if image is None:
-        print(f"Error: Cannot load image from {image_path}")
+        logger.error(f"Error: Cannot load image from {image_path}")
         return
 
     # Convert image to RGB for matplotlib visualization
@@ -27,7 +28,7 @@ def draw_yolo_labels(image_path: str, label_path: str, class_names: list[str] = 
     
     # Read the YOLO labels from file
     if not os.path.exists(label_path):
-        print(f"Error: Label file {label_path} not found.")
+        logger.error(f"Error: Label file {label_path} not found.")
         return
     with open(label_path, "r") as f:
         lines = f.read().strip().splitlines()
@@ -62,7 +63,7 @@ def draw_yolo_labels(image_path: str, label_path: str, class_names: list[str] = 
         # The remaining values are the polygon coordinates (normalized)
         polygon_coords = list(map(float, parts[5:]))
         if len(polygon_coords) % 2 != 0:
-            print("Warning: Polygon coordinates count is not even.")
+            logger.warning("Warning: Polygon coordinates count is not even.")
             continue
         
         # Convert normalized polygon points to pixel coordinates
@@ -113,7 +114,7 @@ def process_yolo_visualization(image_dir, label_dir, output_dir):
 
         draw_yolo_labels(image_path, label_path, None)
 
-    print("Proceso completado.")
+    logger.info("Proceso completado.")
 
 # Ejecutar el procesamiento con rutas ajustadas
 image_dir = "datasets/yolo_single_x2/images/train"

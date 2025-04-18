@@ -57,3 +57,13 @@ Formato imágenes: (182, 218, 182) -> (Píxeles, Píxeles, Cantidad de cortes)
 - La YOLO rinde peor que la UNET
 - Mejorar la resolución usando FSRCNN no parece mejorar el rendimiento de la UNET
 - 
+
+ID | Red | Slice Selection  | Super Resolución
+A  | UNet | Max slice       | Sin SR
+B  | UNet | Max slice       | x2
+C  | YOLO | Max slice       | Sin SR
+D  | YOLO | Max slice       | x2
+E  | UNet | Top 3 slices    | Sin SR
+F  | UNet | Top 3 slices    | x2
+G  | YOLO | Top 3 slices    | Sin SR
+H  | YOLO | Top 3 slices    | x2

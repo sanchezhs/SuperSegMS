@@ -1,6 +1,8 @@
 import toml
 import os
 import argparse
+import json
+import sys
 
 from schemas.pipeline_schemas import (
     PreprocessConfig,
@@ -17,6 +19,7 @@ from steps.training.train import train
 from steps.evaluation.evaluate import evaluate
 from steps.prediction.predict import predict
 
+from loguru import logger
 
 def setup_preprocess_parser(subparser: argparse.ArgumentParser) -> None:
     subparser.add_argument(
@@ -249,6 +252,89 @@ def parse_toml_config(config: str | None) -> PipelineConfig:
         case _:
             raise ValueError(f"Invalid step {parsed_toml['step']}")
 
+def parse_json_experiment(config_path: str, experiment_id: str, step: str) -> PipelineConfig:
+    logger.info(f"Parsing JSON config file: `{config_path}` with experiment_id: `{experiment_id}` and step: `{step}`")
+
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Config file not found {config_path}. Please provide a valid path or create a config.json file.")
+    
+    if not config_path.endswith(".json"):
+        raise ValueError(f"Config file {config_path} is not a valid JSON file. Please provide a valid path or create a config.json file.")
+
+    with open(config_path, "r") as f:
+        data = json.load(f)
+
+    experiments = data.get("experiments", [])
+    selected = next((exp for exp in experiments if exp["id"] == experiment_id), None)
+
+    if not selected:
+        raise ValueError(f"No experiment with id '{experiment_id}' found.")
+
+    if step not in selected:
+        raise ValueError(f"Step '{step}' not found in experiment '{experiment_id}'.")
+
+    conf = selected[step]
+
+    if step == "preprocess":
+        resize = conf.get("resize", None)
+        if resize:
+            parts = resize.split("x")
+            resize = (int(parts[0]), int(parts[1])) if len(parts) == 2 else None
+
+        return PipelineConfig(
+            step="preprocess",
+            preprocess_config=PreprocessConfig(
+                net=Net(conf["net"]),
+                src_path=conf["src_path"],
+                dst_path=conf["dst_path"],
+                resize=resize,
+                split=conf["split"],
+                top_slices=conf.get("top_slices"),
+                super_scale=conf.get("super_scale", None),
+                resize_method=conf.get("resize_method", None),
+            )
+        )
+
+    elif step == "train":
+        return PipelineConfig(
+            step="train",
+            train_config=TrainConfig(
+                net=Net(conf["net"]),
+                src_path=conf["src_path"],
+                dst_path=conf["dst_path"],
+                batch_size=conf["batch_size"],
+                epochs=conf["epochs"],
+                learning_rate=conf["learning_rate"],
+                limit_resources=conf.get("limit_resources", False),
+            )
+        )
+
+    elif step == "predict":
+        return PipelineConfig(
+            step="predict",
+            predict_config=PredictConfig(
+                net=Net(conf["net"]),
+                src_path=conf["src_path"],
+                dst_path=conf["dst_path"],
+                model_path=conf["model_path"],
+            )
+        )
+
+    elif step == "evaluate":
+        return PipelineConfig(
+            step="evaluate",
+            evaluate_config=EvaluateConfig(
+                net=Net(conf["net"]),
+                src_path=conf["src_path"],
+                pred_path=conf["pred_path"],
+                gt_path=conf["gt_path"],
+                model_path=conf["model_path"],
+            )
+        )
+
+    else:
+        raise ValueError(f"Invalid step: {step}")
+
 
 def parse_cli_args(args: argparse.Namespace) -> PipelineConfig:
     if not args.config and not args.step:
@@ -316,51 +402,57 @@ def parse_cli_args(args: argparse.Namespace) -> PipelineConfig:
     else:
         raise ValueError(f"Invalid step {args.step}")
 
-
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="""A CLI program for preprocessing, training, evaluating, and predicting with different neural network models.
-Each step is a separate module that can be run independently.
-        """,
-        formatter_class=argparse.RawTextHelpFormatter,
-    )
+    logger.info("Starting pipeline...")
 
-    parser.add_argument(
-        "--config",
-        type=str,
-        help="Path to the configuration file in TOML format. If provided, CLI arguments will be ignored.",
-        default="config.toml",
-        required=False,
-    )
+#     parser = argparse.ArgumentParser(
+#         description="""A CLI program for preprocessing, training, evaluating, and predicting with different neural network models.
+# Each step is a separate module that can be run independently.
+#         """,
+#         formatter_class=argparse.RawTextHelpFormatter,
+#     )
 
-    subparsers = parser.add_subparsers(
-        dest="step", required=False, description="Choose a pipeline step to execute."
-    )
+#     parser.add_argument(
+#         "--config",
+#         type=str,
+#         help="Path to the configuration file in TOML format. If provided, CLI arguments will be ignored.",
+#         default="config.toml",
+#         required=False,
+#     )
 
-    # Preprocess
-    setup_preprocess_parser(
-        subparsers.add_parser("preprocess", help="Preprocess the dataset for training.")
-    )
+#     subparsers = parser.add_subparsers(
+#         dest="step", required=False, description="Choose a pipeline step to execute."
+#     )
 
-    # Train
-    setup_train_parser(
-        subparsers.add_parser("train", help="Train a neural network model.")
-    )
+#     # Preprocess
+#     setup_preprocess_parser(
+#         subparsers.add_parser("preprocess", help="Preprocess the dataset for training.")
+#     )
 
-    # Evaluate
-    setup_evaluate_parser(
-        subparsers.add_parser("evaluate", help="Evaluate a trained model on a dataset.")
-    )
+#     # Train
+#     setup_train_parser(
+#         subparsers.add_parser("train", help="Train a neural network model.")
+#     )
 
-    # Predict
-    setup_predict_parser(
-        subparsers.add_parser(
-            "predict", help="Use a trained model to make predictions on a dataset."
-        )
-    )
+#     # Evaluate
+#     setup_evaluate_parser(
+#         subparsers.add_parser("evaluate", help="Evaluate a trained model on a dataset.")
+#     )
 
-    args = parser.parse_args()
-    pipeline_config = parse_cli_args(args)
+#     # Predict
+#     setup_predict_parser(
+#         subparsers.add_parser(
+#             "predict", help="Use a trained model to make predictions on a dataset."
+#         )
+#     )
+
+#     args = parser.parse_args()
+    # pipeline_config = parse_cli_args(args)
+    if len(sys.argv) <= 1 or len(sys.argv) != 3:
+        print("Usage: python pipeline.py <experiment_id> <step>")
+        sys.exit(1)
+
+    pipeline_config = parse_json_experiment("config.json", experiment_id=sys.argv[1], step=sys.argv[2])
     pipeline_config.print_config()
 
     if pipeline_config.step == "preprocess" and pipeline_config.preprocess_config:

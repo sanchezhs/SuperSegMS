@@ -7,4 +7,5 @@ segmentation-models-pytorch==0.4.0
 SimpleITK==2.4.1
 toml==0.10.2 
 mypy==1.15.0
+loguru==0.7.3
 types-PyYAML

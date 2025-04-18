@@ -1,3 +1,4 @@
+from typing import Literal
 import yaml
 import os
 import cv2
@@ -6,6 +7,7 @@ import matplotlib.pyplot as plt
 from ultralytics import YOLO as uYOLO
 
 from schemas.pipeline_schemas import TrainConfig, PredictConfig
+from loguru import logger
 
 class YOLO:
     def __init__(self, config: TrainConfig|PredictConfig) -> None:
@@ -13,6 +15,9 @@ class YOLO:
         self.src_path = config.src_path
         self.dst_path = config.dst_path
         self.yaml_path = os.path.join(self.dst_path, "data.yaml")
+
+        if not os.path.exists(self.src_path):
+            raise FileNotFoundError(f"Source path {self.src_path} does not exist. Did you run the preprocess step?")
 
         if isinstance(config, TrainConfig):
             self.batch_size = config.batch_size
@@ -43,6 +48,8 @@ class YOLO:
 
     def predict(self) -> None:
         model = uYOLO(self.model_path)
+
+        # Test
         model.predict(
             source=os.path.join(self.src_path, "images", "test"),
             project=self.dst_path,
@@ -52,8 +59,22 @@ class YOLO:
             device="cuda",
         )
 
-        self.draw_predictions()
+        # Val
+        model.predict(
+            source=os.path.join(self.src_path, "images", "val"),
+            project=self.dst_path,
+            save_txt=True,
+            save_conf=True,
+            save_crop=False,
+            device="cuda",
+        )
+
+        self.draw_predictions(folder_name="predict_test")
+        self.draw_predictions(folder_name="predict_val")
         # self.visualize_predictions()
+
+    def evaluate(self) -> None:
+        pass
 
     def create_yaml(self) -> None:
         """Creates a YAML file with the dataset configuration for YOLO training."""
@@ -73,14 +94,14 @@ class YOLO:
         with open(self.yaml_path, "w") as f:
             yaml.dump(data_yaml, f, default_flow_style=False)
 
-    def draw_predictions(self) -> None:
-        output_dir = os.path.join(self.dst_path, "predict", "masks")
+    def draw_predictions(self, folder_name: str = Literal["predict_test", "predict_val"]) -> None:
+        output_dir = os.path.join(self.dst_path, folder_name, "masks")
 
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
-        image_dir = os.path.join(self.src_path, "images", "test")
-        prediction_dir = os.path.join(self.dst_path, "predict", "labels")
+        image_dir = os.path.join(self.src_path, "images", folder_name.split("_")[-1])
+        prediction_dir = os.path.join(self.dst_path, folder_name, "labels")
         image_files = sorted([f for f in os.listdir(image_dir) if f.endswith((".png", ".jpg"))])
         img_size = self._get_image_size()
         img_size = (img_size, img_size)
@@ -93,13 +114,13 @@ class YOLO:
             prediction_path = os.path.join(prediction_dir, prediction_file)
 
             if not os.path.exists(prediction_path):
-                print(f"Warning: Prediction not found for {image_file}")
+                logger.info(f"Warning: Prediction not found for {image_file}")
                 continue
 
             # Load the image
             img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
             if img is None:
-                print(f"Error: Could not load image {image_path}")
+                logger.warning(f"Error: Could not load image {image_path}")
                 continue
 
             img = cv2.resize(img, img_size)  # Resize if necessary
@@ -118,7 +139,7 @@ class YOLO:
                     coords = values[1:]
 
                     if len(coords) % 2 != 0:
-                        print(f"Warning: Odd number of coordinates in {line}, discarding last value.")
+                        logger.warning(f"Warning: Odd number of coordinates in {line}, discarding last value.")
                         coords = coords[:-1]
 
                     if len(coords) >= 4:
@@ -134,7 +155,7 @@ class YOLO:
             # Save the image with the mask
             dst_path = os.path.join(output_dir, f"{base_name}.png")
             cv2.imwrite(dst_path, mask)
-            print(f"Saved: {dst_path}")
+            logger.info(f"Saved: {dst_path}")
 
     def _get_image_size(self) -> int:
         """Get the image size from the data.yaml file."""
