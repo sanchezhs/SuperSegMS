@@ -6,9 +6,7 @@ import json
 from collections import namedtuple
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
-from typing import Optional, List
-from ultralytics.data.converter import convert_segment_masks_to_yolo_seg
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Optional
 
 from schemas.pipeline_schemas import (
     PreprocessConfig,
@@ -403,100 +401,6 @@ def process_single_patient(
                 super_scale=super_scale,
             )
 
-
-def process_patient_batch(
-    patient_batch: List[str],
-    base_path_train: str,
-    images_dir: str,
-    labels_dir: str,
-    strategy: Strategy,
-    threshold: int,
-    resize: tuple[int, int],
-    super_scale: SuperScale,
-    max_workers: int = 4,  # adjust based on your CPU
-):
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [
-            executor.submit(
-                process_single_patient,
-                patient,
-                base_path_train,
-                images_dir,
-                labels_dir,
-                strategy,
-                threshold,
-                resize,
-                super_scale,
-            )
-            for patient in patient_batch
-        ]
-        for future in as_completed(futures):
-            try:
-                future.result()
-            except Exception as e:
-                logger.exception(f"Exception in patient processing: {e}")
-
-
-def process_patient_batch_old(
-    patient_batch: List[str],
-    base_path_train: str,
-    images_dir: str,
-    labels_dir: str,
-    strategy: Strategy,
-    threshold: int,
-    resize: tuple[int, int],
-    super_scale: SuperScale,
-):
-    for patient in patient_batch:
-        patient_path = os.path.join(base_path_train, patient)
-        for timepoint in os.listdir(patient_path):
-            flair_path = os.path.join(patient_path, timepoint, f"{patient}_{timepoint}_FLAIR.nii.gz")
-            mask_path = os.path.join(patient_path, timepoint, f"{patient}_{timepoint}_MASK.nii.gz")
-
-            if not os.path.exists(flair_path) or not os.path.exists(mask_path):
-                continue
-
-            flair_nifti = nib.load(flair_path)
-            flair_image = flair_nifti.get_fdata()
-            mask_nifti = nib.load(mask_path)
-            mask_image = mask_nifti.get_fdata()
-
-            match strategy.lower():
-                case Strategy.ALL_SLICES.value:
-                    _, best_slice_idxs = get_all_lesion_slices(
-                        flair_data=flair_image,
-                        mask_data=mask_image,
-                        min_area_threshold=threshold,
-                    )
-                case Strategy.TOP_FIVE.value:
-                    _, best_slice_idxs = get_centered_lesion_block(
-                        flair_data=flair_image,
-                        mask_data=mask_image,
-                        block_size=5,
-                    )
-
-            for best_slice_idx in best_slice_idxs:
-                img_filename = f"{patient}_{timepoint}_{best_slice_idx}.png"
-                save_image(
-                    img=flair_image[:, :, best_slice_idx],
-                    img_path=os.path.join(images_dir, img_filename),
-                    is_flair=True,
-                    resize=resize,
-                    super_scale=super_scale,
-                )
-
-                mask_img_filename = f"{patient}_{timepoint}_{best_slice_idx}.png"
-                if np.max(mask_image[:, :, best_slice_idx]) == 0:
-                    logger.warning(f"Mask for {patient} at {timepoint} is empty. Skipping.")
-                save_image(
-                    img=mask_image[:, :, best_slice_idx],
-                    img_path=os.path.join(labels_dir, mask_img_filename),
-                    is_flair=False,
-                    resize=resize,
-                    super_scale=super_scale,
-                )
-
-
 def yolo_process_imgs(
     src_path: str,
     dst_path: str,
@@ -505,13 +409,20 @@ def yolo_process_imgs(
     resize: tuple[int, int],
     strategy: Strategy,
     threshold: int,
-    batch_size: int = 50,
 ) -> None:
     base_path_train = f"{src_path}/train"
+
     split_dirs = create_dirs(dst_path)
+    images_train_dir = split_dirs.images_train_dir
+    images_val_dir = split_dirs.images_val_dir
+    images_test_dir = split_dirs.images_test_dir
+    labels_train_dir = split_dirs.labels_train_dir
+    labels_val_dir = split_dirs.labels_val_dir
+    labels_test_dir = split_dirs.labels_test_dir
 
     patients = [
-        p for p in os.listdir(base_path_train)
+        p
+        for p in os.listdir(base_path_train)
         if os.path.isdir(os.path.join(base_path_train, p))
     ]
 
@@ -519,170 +430,77 @@ def yolo_process_imgs(
         patients, train_frac=split
     )
 
+    # We make sure that the patients in train, val, and test sets are disjoint
     assert train_patients.isdisjoint(val_patients), "Train and val patients overlap"
     assert train_patients.isdisjoint(test_patients), "Train and test patients overlap"
     assert val_patients.isdisjoint(test_patients), "Val and test patients overlap"
 
     splits = {
-        "train": (train_patients, split_dirs.images_train_dir, split_dirs.labels_train_dir),
-        "val": (val_patients, split_dirs.images_val_dir, split_dirs.labels_val_dir),
-        "test": (test_patients, split_dirs.images_test_dir, split_dirs.labels_test_dir),
+        "train": (train_patients, images_train_dir, labels_train_dir),
+        "val": (val_patients, images_val_dir, labels_val_dir),
+        "test": (test_patients, images_test_dir, labels_test_dir),
     }
 
     for split, (current_patients, images_dir, labels_dir) in splits.items():
-        current_patients = list(current_patients)
-        for i in tqdm(range(0, len(current_patients), batch_size), desc=f"Processing yolo: {split}"):
-            logger.info(f"Processing batch {i // batch_size + 1} of {len(current_patients) // batch_size + 1} for {split} set")
-            patient_batch = current_patients[i:i+batch_size]
-            process_patient_batch(
-                patient_batch=patient_batch,
-                base_path_train=base_path_train,
-                images_dir=images_dir,
-                labels_dir=labels_dir,
-                strategy=strategy,
-                threshold=threshold,
-                resize=resize,
-                super_scale=super_scale,
-            )
+        for patient in tqdm(current_patients, desc=f"Processing yolo: {split}"):
+            patient_path = os.path.join(base_path_train, patient)
+            for timepoint in os.listdir(patient_path):
+                flair_path = os.path.join(
+                    patient_path, timepoint, f"{patient}_{timepoint}_FLAIR.nii.gz"
+                )
+                mask_path = os.path.join(
+                    patient_path, timepoint, f"{patient}_{timepoint}_MASK.nii.gz"
+                )
 
+                if not os.path.exists(flair_path) or not os.path.exists(mask_path):
+                    continue
+
+                flair_nifti = nib.load(flair_path)
+                flair_image = flair_nifti.get_fdata()
+                mask_nifti = nib.load(mask_path)
+                mask_image = mask_nifti.get_fdata()
+
+                match strategy.lower():
+                    case Strategy.ALL_SLICES.value:
+                        _, best_slice_idxs = get_all_lesion_slices(
+                            flair_data=flair_image,
+                            mask_data=mask_image,
+                            min_area_threshold=threshold,
+                        )
+                    case Strategy.TOP_FIVE.value:
+                        _, best_slice_idxs = get_centered_lesion_block(
+                            flair_data=flair_image,
+                            mask_data=mask_image,
+                            block_size=5,
+                        )
+
+                for best_slice_idx in best_slice_idxs:
+                    img_filename = f"{patient}_{timepoint}_{best_slice_idx}.png"
+                    save_image(
+                        img=flair_image[:, :, best_slice_idx],
+                        img_path=os.path.join(images_dir, img_filename),
+                        is_flair=True,
+                        resize=resize,
+                        super_scale=super_scale,
+                    )
+
+                    mask_img_filename = f"{patient}_{timepoint}_{best_slice_idx}.png"
+                    if np.max(mask_image[:, :, best_slice_idx]) == 0:
+                        logger.warning(
+                            f"Mask for {patient} at {timepoint} is empty. Skipping."
+                        )
+                    save_image(
+                        img=mask_image[:, :, best_slice_idx],
+                        img_path=os.path.join(labels_dir, mask_img_filename),
+                        is_flair=False,
+                        resize=resize,
+                        super_scale=super_scale,
+                    )
         convert_masks_to_yolo_seg_format(
             masks_dir=labels_dir,
             output_dir=labels_dir,
             class_id=0,
         )
-
-# def yolo_process_imgs(
-#     src_path: str,
-#     dst_path: str,
-#     super_scale: SuperScale,
-#     split: float,
-#     resize: tuple[int, int],
-#     strategy: Strategy,
-#     threshold: int,
-# ) -> None:
-#     base_path_train = f"{src_path}/train"
-
-#     split_dirs = create_dirs(dst_path)
-#     images_train_dir = split_dirs.images_train_dir
-#     images_val_dir = split_dirs.images_val_dir
-#     images_test_dir = split_dirs.images_test_dir
-#     labels_train_dir = split_dirs.labels_train_dir
-#     labels_val_dir = split_dirs.labels_val_dir
-#     labels_test_dir = split_dirs.labels_test_dir
-
-#     patients = [
-#         p
-#         for p in os.listdir(base_path_train)
-#         if os.path.isdir(os.path.join(base_path_train, p))
-#     ]
-
-#     train_patients, val_patients, test_patients = split_patients_triple(
-#         patients, train_frac=split
-#     )
-
-#     # We make sure that the patients in train, val, and test sets are disjoint
-#     assert train_patients.isdisjoint(val_patients), "Train and val patients overlap"
-#     assert train_patients.isdisjoint(test_patients), "Train and test patients overlap"
-#     assert val_patients.isdisjoint(test_patients), "Val and test patients overlap"
-
-#     splits = {
-#         "train": (train_patients, images_train_dir, labels_train_dir),
-#         "val": (val_patients, images_val_dir, labels_val_dir),
-#         "test": (test_patients, images_test_dir, labels_test_dir),
-#     }
-
-#     for split, (current_patients, images_dir, labels_dir) in splits.items():
-#         for patient in tqdm(current_patients, desc=f"Processing yolo: {split}"):
-#             patient_path = os.path.join(base_path_train, patient)
-#             for timepoint in os.listdir(patient_path):
-#                 flair_path = os.path.join(
-#                     patient_path, timepoint, f"{patient}_{timepoint}_FLAIR.nii.gz"
-#                 )
-#                 mask_path = os.path.join(
-#                     patient_path, timepoint, f"{patient}_{timepoint}_MASK.nii.gz"
-#                 )
-
-#                 if not os.path.exists(flair_path) or not os.path.exists(mask_path):
-#                     continue
-
-#                 flair_nifti = nib.load(flair_path)
-#                 flair_image = flair_nifti.get_fdata()
-#                 mask_nifti = nib.load(mask_path)
-#                 mask_image = mask_nifti.get_fdata()
-
-#                 match strategy.lower():
-#                     case Strategy.ALL_SLICES.value:
-#                         _, best_slice_idxs = get_all_lesion_slices(
-#                             flair_data=flair_image,
-#                             mask_data=mask_image,
-#                             min_area_threshold=threshold,
-#                         )
-#                     case Strategy.TOP_FIVE.value:
-#                         _, best_slice_idxs = get_centered_lesion_block(
-#                             flair_data=flair_image,
-#                             mask_data=mask_image,
-#                             block_size=5,
-#                         )
-
-#                 for best_slice_idx in best_slice_idxs:
-#                     img_filename = f"{patient}_{timepoint}_{best_slice_idx}.png"
-#                     save_image(
-#                         img=flair_image[:, :, best_slice_idx],
-#                         img_path=os.path.join(images_dir, img_filename),
-#                         is_flair=True,
-#                         resize=resize,
-#                         super_scale=super_scale,
-#                     )
-
-#                     mask_img_filename = f"{patient}_{timepoint}_{best_slice_idx}.png"
-#                     if np.max(mask_image[:, :, best_slice_idx]) == 0:
-#                         logger.warning(
-#                             f"Mask for {patient} at {timepoint} is empty. Skipping."
-#                         )
-#                     save_image(
-#                         img=mask_image[:, :, best_slice_idx],
-#                         img_path=os.path.join(labels_dir, mask_img_filename),
-#                         is_flair=False,
-#                         resize=resize,
-#                         super_scale=super_scale,
-#                     )
-#         convert_masks_to_yolo_seg_format(
-#             masks_dir=labels_dir,
-#             output_dir=labels_dir,
-#             class_id=0,
-#         )
-
-    # todo borrar abajo
-        # convert_segment_masks_to_yolo_seg(
-        #     masks_dir=labels_dir,
-        #     output_dir=labels_dir,
-        #     classes=255,
-        # )
-    # Mask images pixels are either 0 or 255
-    # convert_segment_masks_to_yolo_seg needs masks to be 0 or 1 so we tell it that we have
-    # 255 classes. Therefore we need the convert the classes to 0.
-    # for split in [labels_train_dir, labels_val_dir, labels_test_dir]:
-    #     for filename in os.listdir(split):
-    #         if filename.endswith(".txt"):
-    #             file_path = os.path.join(split, filename)
-    #             fixed_lines = []
-
-    #             with open(file_path, "r") as f:
-    #                 lines = f.readlines()
-
-    #             for line in lines:
-    #                 parts = line.strip().split()
-    #                 if not parts:
-    #                     continue
-    #                 try:
-    #                     float(parts[0])  # check it's a number
-    #                     parts[0] = "0"  # force class to 0
-    #                     fixed_lines.append(" ".join(parts))
-    #                 except ValueError:
-    #                     continue
-
-    #             with open(file_path, "w") as f:
-    #                 f.write("\n".join(fixed_lines))
 
 def write_preprocess_params(config: PreprocessConfig) -> None:
     with open(os.path.join(config.dst_path, "preprocess_params.json"), "w") as f:
@@ -727,85 +545,3 @@ def preprocess(config: PreprocessConfig) -> None:
             raise ValueError(f"Invalid net name {net}")
 
     write_preprocess_params(config)
-
-
-
-
-# def get_top_lesion_slices(flair_data, mask_data, num_slices=1, min_area_threshold=0):
-#     """
-#     Finds the `num_slices` with the largest lesion areas and returns the corresponding full FLAIR slices.
-
-#     Parameters:
-#     - mask_data: Numpy array containing the lesion mask data
-#     - flair_data: Numpy array containing the FLAIR image data
-#     - num_slices: Number of slices with the largest lesion areas to select
-#     - min_area_threshold: Minimum area threshold to consider a lesion significant
-
-#     Returns:
-#     - flair_slices: List of NumPy arrays containing the selected full FLAIR slices
-#     - selected_indices: List of indices corresponding to the selected slices
-#     """
-#     assert np.all(
-#         np.isin(mask_data, [0, 1])
-#     ), "Error: Mask data should only contain 0s and 1s"
-#     assert (
-#         mask_data.shape == flair_data.shape
-#     ), "Error: Mask and FLAIR dimensions do not match"
-
-#     # If the number of slices is less than or equal to 0, return all slices
-#     lesion_areas = []
-#     for i in range(mask_data.shape[2]):
-#         slice_sum = np.sum(mask_data[:, :, i] > 0)
-#         lesion_areas.append((i, slice_sum))
-#     lesion_areas = [t for t in lesion_areas if t[1] > min_area_threshold]
-
-#     if not lesion_areas:
-#         middle_idx = mask_data.shape[2] // 2
-#         return [flair_data[:, :, middle_idx]], [middle_idx]
-
-#     lesion_areas.sort(key=lambda x: x[1], reverse=True)
-#     selected_slices = lesion_areas[: min(num_slices, len(lesion_areas))]
-#     selected_indices = [idx for idx, _ in selected_slices]
-
-#     flair_slices = [flair_data[:, :, idx] for idx in selected_indices]
-
-#     return flair_slices, selected_indices
-
-
-# https://github.com/diuzhevVlad/mask2yolo/blob/main/converter.py
-# def mask_to_yolo(
-#     mask: np.ndarray,
-#     super_scale: SuperScale,
-#     resize: tuple[int, int],
-# ) -> list[str]:
-#     """Converts a binary mask to YOLO format."""
-#     scaled_resize = (resize[1] * super_scale, resize[0] * super_scale)
-#     mask = cv2.resize(mask, scaled_resize, interpolation=cv2.INTER_NEAREST)
-#     mask = (mask > 0).astype(np.uint8)
-#     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-#     h, w = mask.shape
-#     yolo_labels = []
-
-#     for contour in contours:
-#         if len(contour) >= 3:
-#             polygon = []
-#             for point in contour:
-#                 x, y = point[0]
-#                 polygon.append(f"{x / w:.6f} {y / h:.6f}")
-
-#             # YOLO-Seg format: <class> <x_center> <y_center> <width> <height> <x1> <y1> <x2> <y2> ... <xN> <yN>
-#             x_min, y_min = contour.min(axis=0)[0]
-#             x_max, y_max = contour.max(axis=0)[0]
-#             x_center = (x_min + x_max) / 2 / w
-#             y_center = (y_min + y_max) / 2 / h
-#             width = (x_max - x_min) / w
-#             height = (y_max - y_min) / h
-
-#             label = (
-#                 f"0 {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f} "
-#                 + " ".join(polygon)
-#             )
-#             yolo_labels.append(label)
-
-#     return yolo_labels
