@@ -5,6 +5,7 @@ import numpy as np
 import json
 from collections import namedtuple
 from sklearn.model_selection import train_test_split
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 from typing import Optional
 
@@ -198,6 +199,108 @@ def save_image(
     cv2.imwrite(img_path, img)
 
 
+def process_patient(
+    patient: str,
+    base_path_train: str,
+    images_dir: str,
+    labels_dir: str,
+    strategy: Strategy,
+    threshold: int,
+    resize: tuple[int, int],
+    super_scale: SuperScale,
+    resize_method: Optional[ResizeMethod] = None,
+) -> None:
+    """
+    Load one patient's timepoints, pick best slices, and save both FLAIR and mask PNGs.
+    """
+    patient_path = os.path.join(base_path_train, patient)
+    if not os.path.isdir(patient_path):
+        logger.warning(f"Patient {patient} directory not found. Skipping.")
+        return
+
+    for timepoint in os.listdir(patient_path):
+        flair_path = os.path.join(patient_path, timepoint, f"{patient}_{timepoint}_FLAIR.nii.gz")
+        mask_path  = os.path.join(patient_path, timepoint, f"{patient}_{timepoint}_MASK.nii.gz")
+
+        if not os.path.exists(flair_path) or not os.path.exists(mask_path):
+            logger.warning(f"Missing FLAIR or mask for {patient}@{timepoint}, skipping.")
+            continue
+
+        flair_img = nib.load(flair_path).get_fdata()
+        mask_img  = nib.load(mask_path).get_fdata()
+
+        # decide which slices to keep
+        if strategy.lower() == Strategy.ALL_SLICES.value:
+            _, slice_idxs = get_all_lesion_slices(flair_img, mask_img, min_area_threshold=threshold)
+        elif strategy.lower() == Strategy.TOP_FIVE.value:
+            _, slice_idxs = get_centered_lesion_block(flair_img, mask_img, block_size=5)
+        else:
+            raise ValueError(f"Invalid strategy {strategy}")
+
+        # save both flair & mask in parallel
+        for idx in slice_idxs:
+            base_fn = f"{patient}_{timepoint}_{idx}.png"
+            save_image(
+                img=flair_img[:, :, idx],
+                img_path=os.path.join(images_dir, base_fn),
+                super_scale=super_scale,
+                resize=resize,
+                is_flair=True,
+                resize_method=resize_method,
+            )
+            # skip empty masks
+            if np.max(mask_img[:, :, idx]) == 0:
+                logger.warning(f"Empty mask for {patient}@{timepoint}@slice{idx}")
+            save_image(
+                img=mask_img[:, :, idx],
+                img_path=os.path.join(labels_dir, base_fn),
+                super_scale=super_scale,
+                resize=resize,
+                is_flair=False,
+                resize_method=resize_method,
+            )
+
+
+def _batch_process_split(
+    name: str,
+    patients: set[str],
+    base_path_train: str,
+    images_dir: str,
+    labels_dir: str,
+    strategy: Strategy,
+    threshold: int,
+    resize: tuple[int, int],
+    super_scale: SuperScale,
+    resize_method: Optional[ResizeMethod],
+    max_workers: Optional[int] = None,
+) -> None:
+    """
+    Submit one thread per patient in this split.
+    """
+    logger.info(f"Starting batch for split='{name}' with {len(patients)} patients.")
+    with ThreadPoolExecutor(max_workers=max_workers) as exe:
+        futures = {
+            exe.submit(
+                process_patient,
+                pat,
+                base_path_train,
+                images_dir,
+                labels_dir,
+                strategy,
+                threshold,
+                resize,
+                super_scale,
+                resize_method,
+            ): pat
+            for pat in patients
+        }
+        for fut in tqdm(as_completed(futures), total=len(futures), desc=f"Batch {name}"):
+            pat = futures[fut]
+            try:
+                fut.result()
+            except Exception as e:
+                logger.error(f"Patient {pat} failed: {e}")
+
 def unet_process_imgs(
     src_path: str,
     dst_path: str,
@@ -208,102 +311,80 @@ def unet_process_imgs(
     threshold: int,
     resize_method: Optional[ResizeMethod],
 ) -> None:
-    base_path_train = f"{src_path}/train"
+    base = os.path.join(src_path, "train")
+    dirs = create_dirs(dst_path)
 
-    split_dirs = create_dirs(dst_path)
-    images_train_dir = split_dirs.images_train_dir
-    images_val_dir = split_dirs.images_val_dir
-    images_test_dir = split_dirs.images_test_dir
-    labels_train_dir = split_dirs.labels_train_dir
-    labels_val_dir = split_dirs.labels_val_dir
-    labels_test_dir = split_dirs.labels_test_dir
+    patients = [p for p in os.listdir(base) if os.path.isdir(os.path.join(base, p))]
+    train_p, val_p, test_p = split_patients_triple(patients, train_frac=split)
 
-    patients = [
-        p
-        for p in os.listdir(base_path_train)
-        if os.path.isdir(os.path.join(base_path_train, p))
-    ]
-
-    train_patients, val_patients, test_patients = split_patients_triple(
-        patients, train_frac=split
-    )
-
-    # We make sure that the patients in train, val, and test sets are disjoint
-    assert train_patients.isdisjoint(val_patients), "Train and val patients overlap"
-    assert train_patients.isdisjoint(test_patients), "Train and test patients overlap"
-    assert val_patients.isdisjoint(test_patients), "Val and test patients overlap"
+    # Ensure disjoint sets
+    assert train_p.isdisjoint(val_p), "Train and val patients overlap"
+    assert train_p.isdisjoint(test_p), "Train and test patients overlap"
+    assert val_p.isdisjoint(test_p), "Val and test patients overlap"
 
     splits = {
-        "train": (train_patients, images_train_dir, labels_train_dir),
-        "val": (val_patients, images_val_dir, labels_val_dir),
-        "test": (test_patients, images_test_dir, labels_test_dir),
+        "train": (train_p, dirs.images_train_dir, dirs.labels_train_dir),
+        "val":   (val_p,   dirs.images_val_dir,   dirs.labels_val_dir),
+        "test":  (test_p,  dirs.images_test_dir,  dirs.labels_test_dir),
     }
 
-    for split, (current_patients, images_dir, labels_dir) in splits.items():
-        for patient in tqdm(current_patients, desc=f"Processing unet: {split}"):
-            patient_path = os.path.join(base_path_train, patient)
+    for name, (petset, img_dir, lbl_dir) in splits.items():
+        _batch_process_split(
+            name,
+            petset,
+            base,
+            img_dir,
+            lbl_dir,
+            strategy,
+            threshold,
+            resize,
+            super_scale,
+            resize_method,
+            max_workers=os.cpu_count(),
+        )
 
-            if not os.path.isdir(patient_path):
-                logger.warning(f"Patient {patient} directory not found. Skipping.")
-                continue
+def yolo_process_imgs(
+    src_path: str,
+    dst_path: str,
+    super_scale: SuperScale,
+    split: float,
+    resize: tuple[int, int],
+    strategy: Strategy,
+    threshold: int,
+) -> None:
+    base = os.path.join(src_path, "train")
+    dirs = create_dirs(dst_path)
 
-            for timepoint in os.listdir(patient_path):
-                if timepoint.lower() == ".ds_store":
-                    # logger.warning(f"Skipping .DS_Store file in {patient_path}")
-                    continue
+    patients = [p for p in os.listdir(base) if os.path.isdir(os.path.join(base, p))]
+    train_p, val_p, test_p = split_patients_triple(patients, train_frac=split)
 
-                flair_path = os.path.join(
-                    patient_path, timepoint, f"{patient}_{timepoint}_FLAIR.nii.gz"
-                )
-                mask_path = os.path.join(
-                    patient_path, timepoint, f"{patient}_{timepoint}_MASK.nii.gz"
-                )
+    # Ensure disjoint sets
+    assert train_p.isdisjoint(val_p), "Train and val patients overlap"
+    assert train_p.isdisjoint(test_p), "Train and test patients overlap"
+    assert val_p.isdisjoint(test_p), "Val and test patients overlap"
 
-                if not os.path.exists(flair_path) or not os.path.exists(mask_path):
-                    logger.warning(
-                        f"FLAIR or mask file not found for {patient} at {timepoint}. Skipping."
-                    )
-                    continue
+    splits = {
+        "train": (train_p, dirs.images_train_dir, dirs.labels_train_dir),
+        "val":   (val_p,   dirs.images_val_dir,   dirs.labels_val_dir),
+        "test":  (test_p,  dirs.images_test_dir,  dirs.labels_test_dir),
+    }
 
-                flair_nifti = nib.load(flair_path)
-                flair_image = flair_nifti.get_fdata()
-                mask_nifti = nib.load(mask_path)
-                mask_image = mask_nifti.get_fdata()
+    for name, (petset, img_dir, lbl_dir) in splits.items():
+        _batch_process_split(
+            name,
+            petset,
+            base,
+            img_dir,
+            lbl_dir,
+            strategy,
+            threshold,
+            resize,
+            super_scale,
+            resize_method=None,
+            max_workers=os.cpu_count(),
+        )
 
-                if strategy.lower() == Strategy.ALL_SLICES.value:
-                    _, best_slice_idxs = get_all_lesion_slices(
-                        flair_data=flair_image,
-                        mask_data=mask_image,
-                        min_area_threshold=threshold,
-                    )
-                elif strategy.lower() == Strategy.TOP_FIVE.value:
-                    _, best_slice_idxs = get_centered_lesion_block(
-                        flair_data=flair_image,
-                        mask_data=mask_image,
-                        block_size=5,
-                    )
-                else:
-                    raise ValueError(f"Invalid strategy {strategy}")
-
-                for best_slice_idx in best_slice_idxs:
-                    img_filename = f"{patient}_{timepoint}_{best_slice_idx}.png"
-                    save_image(
-                        img=flair_image[:, :, best_slice_idx],
-                        img_path=os.path.join(images_dir, img_filename),
-                        is_flair=True,
-                        resize=resize,
-                        super_scale=super_scale,
-                        resize_method=resize_method,
-                    )
-                    mask_img_filename = f"{patient}_{timepoint}_{best_slice_idx}.png"
-                    save_image(
-                        img=mask_image[:, :, best_slice_idx],
-                        img_path=os.path.join(labels_dir, mask_img_filename),
-                        is_flair=False,
-                        resize=resize,
-                        super_scale=super_scale,
-                        resize_method=resize_method,
-                    )
+        convert_masks_to_yolo_seg_format(masks_dir=lbl_dir, output_dir=lbl_dir, class_id=0)
 
 def convert_masks_to_yolo_seg_format(masks_dir: str, output_dir: str, class_id: int = 0):
     """
