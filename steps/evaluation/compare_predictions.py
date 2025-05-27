@@ -1,6 +1,7 @@
 import sys
 import os
 import cv2
+import re
 import numpy as np
 import matplotlib.pyplot as plt
 from loguru import logger
@@ -43,8 +44,8 @@ def update_display(fig, axes, mask_dir, mri_dir):
         return
     
     patient_id = patient_ids[current_index]
-    pred_mask_img_path = os.path.join(mask_dir, f"P{patient_id}.png")
-    mri_img_path = os.path.join(mri_dir, f"P{patient_id}.png")
+    pred_mask_img_path = os.path.join(mask_dir, f"{patient_id}.png")
+    mri_img_path = os.path.join(mri_dir, f"{patient_id}.png")
 
     mask = load_image(pred_mask_img_path, is_mask=True)
     mri = load_image(mri_img_path)
@@ -83,7 +84,7 @@ def compare_directories(mask_dir, mri_dir):
 
     # Extract patient IDs from filenames (assuming format "P{number}.png")
     mask_filenames = sorted([f for f in os.listdir(mask_dir) if f.startswith("P") and f.endswith(".png")])
-    patient_ids = sorted([int(f[1:-4]) for f in mask_filenames])  # Extract numbers from P{number}.png
+    patient_ids = sorted([f[:-4] for f in mask_filenames])
 
     if not patient_ids:
         print(f"❌ No valid patient images found in {mask_dir}")

@@ -48,6 +48,25 @@ class MRIDataset(Dataset):
 
         return img, self.images[idx]
 
+class BCEDiceLoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.bce = nn.BCEWithLogitsLoss()
+
+    def forward(self, inputs, targets):
+        bce_loss = self.bce(inputs, targets)
+        probs = torch.sigmoid(inputs)
+        smooth = 1e-5
+
+        probs = probs.view(probs.size(0), -1)
+        targets = targets.view(targets.size(0), -1)
+
+        intersection = (probs * targets).sum(dim=1)
+        dice = (2. * intersection + smooth) / (probs.sum(dim=1) + targets.sum(dim=1) + smooth)
+        dice_loss = 1 - dice.mean()
+
+        return bce_loss + dice_loss
+
 
 class UNet:
     def __init__(
@@ -57,7 +76,7 @@ class UNet:
     ) -> None:
         self.mode = mode
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.encoder_name = "resnet152"
+        self.encoder_name = "resnet34"
 
         if mode == "train":
             assert isinstance(config, TrainConfig), "Train mode requires a TrainConfig"
@@ -84,22 +103,25 @@ class UNet:
                 MRIDataset(
                     os.path.join(self.src_path, "images", "train"),
                     os.path.join(self.src_path, "labels", "train"),
-                )
+                ),
+                num_workers=4,
             )
             self.val_loader = DataLoader(
                 MRIDataset(
                     os.path.join(self.src_path, "images", "val"),
                     os.path.join(self.src_path, "labels", "val"),
-                )
+                ),
+                num_workers=4,
             )
             self.model = smp.Unet(
                 encoder_name=self.encoder_name, in_channels=1, classes=1, activation=None
             ).to(self.device)
 
-            self.criterion = nn.BCEWithLogitsLoss()
+            # self.criterion = nn.BCEWithLogitsLoss()
+            self.criterion = BCEDiceLoss()
             self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
             self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-                self.optimizer, mode="min", factor=0.1, patience=5, verbose=True
+                self.optimizer, mode="min", factor=0.1, patience=5
             )
 
             self.train_losses = []
@@ -236,7 +258,6 @@ class UNet:
 
     def predict(self) -> None:
         logger.info(f"Predicting images in {self.src_path} and saving to {self.dst_path}")
-
         self.model.load_state_dict(
             torch.load(self.model_path, map_location=self.device)
         )
@@ -244,7 +265,7 @@ class UNet:
 
         os.makedirs(os.path.join(self.dst_path), exist_ok=True)
 
-        for i, (image, image_name) in enumerate(self.test_loader):
+        for i, (image, image_name) in enumerate(tqdm(self.test_loader, desc="Predicting")):
             image = image.to(self.device)
             with torch.no_grad():
                 pred_mask = torch.sigmoid(self.model(image)).cpu().numpy().squeeze()
@@ -298,15 +319,16 @@ class UNet:
         logger.info(f"Metrics saved in {self.pred_path}/metrics.{format}")
 
     def _plot_loss_curve(self) -> None:
+        title = self.model_name if self.mode == "train" else "Loss Curve"
         plt.figure(figsize=(10, 5))
         plt.plot(self.train_losses, label='Training Loss')
         plt.plot(self.val_losses, label='Validation Loss')
         plt.xlabel('Epochs')
         plt.ylabel('Loss')
-        plt.title('Training and Validation Loss Curve')
+        plt.title(f'Training and Validation Loss Curve - {title}')
         plt.legend()
         plt.grid()
-        plt.savefig(os.path.join(self.dst_path, "loss_curve.png"))
+        plt.savefig(os.path.join(self.dst_path, f"loss_curve_{title}.png"))
         logger.info(f"Loss curve saved at {self.dst_path}/loss_curve.png")
 
     def _infer_and_time(self, image: torch.Tensor) -> tuple[np.ndarray, float]:

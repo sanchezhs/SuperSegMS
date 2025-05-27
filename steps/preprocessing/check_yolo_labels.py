@@ -83,13 +83,16 @@ def draw_yolo_labels(image_path: str, label_path: str, class_names: list[str] = 
         label_text = class_names[int(class_id)] if class_names and int(class_id) < len(class_names) else class_id
         cv2.putText(image_rgb, label_text, (x_min, y_min - 10), 
                     cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
-    
+    # Save the resulting image with labels
+    output_path = os.path.splitext(image_path)[0] + "_labeled.png"
+    cv2.imwrite(output_path, cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR))
+    logger.info(f"Labeled image saved to {output_path}")
     # Display the resulting image using matplotlib
-    plt.figure(figsize=(10, 10))
-    plt.imshow(image_rgb)
-    plt.axis("off")
-    plt.title("YOLO Labels Visualization")
-    plt.show()
+    # plt.figure(figsize=(10, 10))
+    # plt.imshow(image_rgb)
+    # plt.axis("off")
+    # plt.title("YOLO Labels Visualization")
+    # plt.show()
 
 def process_yolo_visualization(image_dir, label_dir, output_dir):
     """
@@ -117,8 +120,8 @@ def process_yolo_visualization(image_dir, label_dir, output_dir):
     logger.info("Proceso completado.")
 
 # Ejecutar el procesamiento con rutas ajustadas
-image_dir = "datasets/yolo_single_x2/images/train"
-label_dir = "datasets/yolo_single_x2/labels/train"
-output_dir = "datasets/yolo_single_x2/visualizations"
+image_dir = "datasets/yolo_top5_slice_x0/images/train"
+label_dir = "datasets/yolo_top5_slice_x0/labels/train"
+output_dir = "datasets/delete/visualizations"
 
 process_yolo_visualization(image_dir, label_dir, output_dir)

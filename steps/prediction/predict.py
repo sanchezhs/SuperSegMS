@@ -9,7 +9,7 @@ def write_predict_params(config: PredictConfig) -> None:
     """Write prediction parameters to a file."""
     with open(os.path.join(config.dst_path, "predict_params.json"), "w") as f:
         json.dump(
-            config.as_dict(),
+            config.model_dump(),
             f,
             indent=4,
         )

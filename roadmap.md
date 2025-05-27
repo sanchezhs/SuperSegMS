@@ -55,15 +55,15 @@ Formato imágenes: (182, 218, 182) -> (Píxeles, Píxeles, Cantidad de cortes)
 
 # Avances
 - La YOLO rinde peor que la UNET
-- Mejorar la resolución usando FSRCNN no parece mejorar el rendimiento de la UNET
-- 
 
-ID | Red | Slice Selection  | Super Resolución
-A  | UNet | Max slice       | Sin SR
-B  | UNet | Max slice       | x2
-C  | YOLO | Max slice       | Sin SR
-D  | YOLO | Max slice       | x2
-E  | UNet | Top 3 slices    | Sin SR
-F  | UNet | Top 3 slices    | x2
-G  | YOLO | Top 3 slices    | Sin SR
-H  | YOLO | Top 3 slices    | x2
+Estado | ID  | Red    | Slice Selection  | Super Resolución
+[X]     | A   | UNet   | BASE             | Sin SR 
+[X]     | B   | YOLO   | BASE             | Sin SR
+[X]     | C   | UNet   | ALL              | Sin SR 
+[X]     | D   | UNet   | ALL              | x2
+[X]     | E   | YOLO   | ALL              | Sin SR
+[X]     | F   | YOLO   | ALL              | x2
+[X]     | G   | UNet   | Top 5 slices     | Sin SR
+[X]     | H   | UNet   | Top 5 slices     | x2
+[X]     | I   | YOLO   | Top 5 slices     | Sin SR
+[X]     | J   | YOLO   | Top 5 slices     | x2

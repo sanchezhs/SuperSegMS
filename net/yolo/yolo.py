@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 import json
 import shutil
+import time
 from ultralytics import YOLO as uYOLO
 from schemas.pipeline_schemas import TrainConfig, PredictConfig, EvaluateConfig
 from loguru import logger
@@ -24,10 +25,14 @@ class YOLO:
 
             # Default segmentation model for training
             self.model_path = "./net/yolo/models/yolo11m-seg.pt"
+
+            self.create_yaml()
         elif isinstance(config, PredictConfig):
             self.dst_path = config.dst_path
             self.model_path = config.model_path
             self.yaml_path = os.path.join(self.dst_path, "data.yaml")
+            
+            self.create_yaml()
         elif isinstance(config, EvaluateConfig):
             self.pred_path = config.pred_path
             self.model_path = config.model_path
@@ -35,7 +40,6 @@ class YOLO:
         else:
             raise ValueError("Invalid config type. Allowed types are TrainConfig and PredictConfig.")
 
-        self.create_yaml()
 
     def train(self) -> None:
         imgsz = self._get_image_size()[0]
@@ -55,48 +59,64 @@ class YOLO:
     def predict(self) -> None:
         model = uYOLO(self.model_path)
 
-        if os.path.exists(os.path.join(self.dst_path, "predict")):
-            logger.info(f"Prediction folder already exists: {os.path.join(self.dst_path, 'predict')}. Removing it.")
-            shutil.rmtree(os.path.join(self.dst_path, "predict"))
+        predict_dir = os.path.join(self.dst_path, "predict")
+        if os.path.exists(predict_dir):
+            logger.info(f"Prediction folder already exists: {predict_dir}. Removing it.")
+            shutil.rmtree(predict_dir)
 
-        # Test
-        model.predict(
-            source=os.path.join(self.src_path, "images", "test"),
-            project=self.dst_path,
-            save_txt=True,
-            save_conf=True,
-            save_crop=False,
-            device="cuda",
-        )
+        image_dir = os.path.join(self.src_path, "images", "test")
+        image_files = sorted([
+            f for f in os.listdir(image_dir)
+            if f.lower().endswith((".png", ".jpg", ".jpeg"))
+        ])
 
-        # Val
-        # model.predict(
-        #     source=os.path.join(self.src_path, "images", "val"),
-        #     project=self.dst_path,
-        #     save_txt=True,
-        #     save_conf=True,
-        #     save_crop=False,
-        #     device="cuda",
-        # )
+        inference_times = []
+
+        for img_file in image_files:
+            image_path = os.path.join(image_dir, img_file)
+
+            start = time.perf_counter()
+            model.predict(
+                source=image_path,
+                project=self.dst_path,
+                name="predict",
+                save_txt=True,
+                save_conf=True,
+                save_crop=False,
+                device="cuda",
+                exist_ok=True,
+            )
+            elapsed = time.perf_counter() - start
+            inference_times.append(elapsed)
+            logger.debug(f"Inference time for {img_file}: {elapsed:.6f} s")
+
+        # Guardar tiempos
+        times_path = os.path.join(self.dst_path, "predict", "inference_times.json")
+        with open(times_path, "w") as f:
+            json.dump(inference_times, f, indent=4)
+        logger.success(f"Inference times saved to {times_path}")
 
         self.draw_predictions()
-        # self.draw_predictions(folder_name="predict_val")
 
     def evaluate(self) -> None:
         """Evaluate the YOLO predictions using the ground truth masks."""
         logger.info(f"Evaluating YOLO predictions in folder {self.pred_path}")
-        folder_name = os.path.basename(self.pred_path)
+
+        times_path = os.path.join(self.pred_path, "predict", "inference_times.json")
+        if not os.path.exists(times_path):
+            raise FileNotFoundError(f"Times path {times_path} does not exist. Did you run the predict step?")
+
+        print(f"Loading inference times from {times_path}")
         if not os.path.exists(self.pred_path):
             raise FileNotFoundError(f"Prediction path {self.pred_path} does not exist. Did you run the predict step?")
-        gt_dir = os.path.join(self.gt_path, "labels", folder_name.split("_")[-1])
-        pred_dir = os.path.join(self.pred_path, folder_name, "masks")
 
-        image_names = sorted(os.listdir(pred_dir))
+        mask_dir = os.path.join(self.pred_path, "masks")
+        image_names = sorted(os.listdir(mask_dir))
         metrics = []
 
         for name in image_names:
-            pred_mask = cv2.imread(os.path.join(pred_dir, name), cv2.IMREAD_GRAYSCALE)
-            gt_mask = cv2.imread(os.path.join(gt_dir, name), cv2.IMREAD_GRAYSCALE)
+            pred_mask = cv2.imread(os.path.join(mask_dir, name), cv2.IMREAD_GRAYSCALE)
+            gt_mask = cv2.imread(os.path.join(self.gt_path, name), cv2.IMREAD_GRAYSCALE)
 
             if pred_mask is None or gt_mask is None:
                 logger.warning(f"Skipping {name} due to missing prediction or ground truth.")
@@ -124,7 +144,7 @@ class YOLO:
             metrics.append({
                 "image": name,
                 "iou": iou,
-                "dice": dice,
+                "dice_score": dice,
                 "precision": precision,
                 "recall": recall,
                 "f1_score": f1_score,
@@ -133,17 +153,23 @@ class YOLO:
 
         avg_metrics = {
             key: np.mean([m[key] for m in metrics])
-            for key in ["iou", "dice", "precision", "recall", "f1_score", "specificity"]
+            for key in ["iou", "dice_score", "precision", "recall", "f1_score", "specificity"]
         }
+
+        with open(times_path, "r") as f:
+            inference_times = json.load(f)
+
+        avg_inference_time = float(np.mean(inference_times))
+        avg_metrics["inference_time"] = avg_inference_time
 
         logger.info("Average metrics:")
         for k, v in avg_metrics.items():
             logger.info(f"{k}: {v:.4f}")
 
         # Save metrics to a JSON file
-        metrics_path = os.path.join(self.dst_path, "metrics.json")
+        metrics_path = os.path.join(self.pred_path, "metrics.json")
         with open(metrics_path, "w") as f:
-            json.dump(metrics, f, indent=4)
+            json.dump(avg_metrics, f, indent=4)
         logger.success(f"Metrics saved to {metrics_path}")
         logger.success("Evaluation completed.")
 

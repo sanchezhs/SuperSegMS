@@ -9,7 +9,7 @@ def write_evaluate_params(config: EvaluateConfig) -> None:
     """Write evaluation parameters to a file."""
     with open(os.path.join(config.pred_path, "evaluate_params.json"), "w") as f:
         json.dump(
-            config.as_dict(),
+            config.model_dump(),
             f,
             indent=4,
         )

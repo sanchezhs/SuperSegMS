@@ -5,240 +5,339 @@
             "preprocess": {
                 "net": "unet",
                 "src_path": "datasets/MSLesSeg-Dataset",
-                "dst_path": "datasets/unet_max_slice_x0",
-                "resize": "320x320",
+                "dst_path": "datasets/unet_all",
+                "resize": [320, 320],
                 "split": 0.7,
-                "top_slices": 1,
+                "strategy": "all_slices",
+                "threshold": 0,
                 "super_scale": 1
             },
             "train": {
                 "net": "unet",
-                "src_path": "datasets/unet_max_slice_x0",
-                "dst_path": "results/unet/unet_max_slice_x0",
+                "src_path": "datasets/unet_all",
+                "dst_path": "results/unet/unet_all",
                 "batch_size": 16,
-                "epochs": 50,
+                "epochs": 25,
                 "learning_rate": 0.001
             },
             "predict": {
                 "net": "unet",
-                "model_path": "results/unet/unet_max_slice_x0/models/unet_max_slice_x0.pth",
-                "src_path": "datasets/unet_max_slice_x0",
-                "dst_path": "results/unet/unet_max_slice_x0/predictions"
+                "model_path": "results/unet/unet_all/models/unet_all.pth",
+                "src_path": "datasets/unet_all",
+                "dst_path": "results/unet/unet_all/predictions"
             },
             "evaluate": {
                 "net": "unet",
-                "model_path": "results/unet/unet_max_slice_x0/models/unet_max_slice_x0.pth",
-                "src_path": "datasets/unet_max_slice_x0",
-                "pred_path": "results/unet/unet_max_slice_x0/predictions",
-                "gt_path": "datasets/unet_max_slice_x0/labels/val"
+                "model_path": "results/unet/unet_all/models/unet_all.pth",
+                "src_path": "datasets/unet_all",
+                "pred_path": "results/unet/unet_all/predictions",
+                "gt_path": "datasets/unet_all/labels/test"
             }
         },
         {
             "id": "B",
             "preprocess": {
-                "net": "unet",
+                "net": "yolo",
                 "src_path": "datasets/MSLesSeg-Dataset",
-                "dst_path": "datasets/unet_max_slice_x2",
-                "resize": "320x320",
+                "dst_path": "datasets/yolo_all",
+                "resize": [320, 320],
                 "split": 0.7,
-                "super_scale": 2
+                "strategy": "all_slices",
+                "threshold": 0,
+                "super_scale": 1
             },
             "train": {
-                "net": "unet",
-                "src_path": "datasets/unet_max_slice_x2",
-                "dst_path": "models/unet_max_slice_x2",
+                "net": "yolo",
+                "src_path": "datasets/yolo_all",
+                "dst_path": "results/yolo/yolo_all",
                 "batch_size": 16,
-                "epochs": 50,
+                "epochs": 25,
                 "learning_rate": 0.001
             },
             "predict": {
-                "net": "unet",
-                "model_path": "results/unet/unet_max_slice_x2/models/unet_max_slice_x2.pth",
-                "src_path": "datasets/unet_max_slice_x2",
-                "dst_path": "results/unet/unet_max_slice_x2/predictions"
+                "net": "yolo",
+                "model_path": "results/yolo/yolo_all/train/weights/best.pt",
+                "src_path": "datasets/yolo_all",
+                "dst_path": "results/yolo/yolo_all/predictions"
             },
             "evaluate": {
-                "net": "unet",
-                "model_path": "results/unet/unet_max_slice_x2/models/unet_max_slice_x2.pth",
-                "src_path": "datasets/unet_max_slice_x2",
-                "pred_path": "results/unet/unet_max_slice_x2/predictions",
-                "gt_path": "datasets/unet_max_slice_x2/labels/val"
+                "net": "yolo",
+                "model_path": "results/yolo/yolo_all/train/weights/best.pt",
+                "src_path": "datasets/yolo_all",
+                "pred_path": "results/yolo/yolo_all/predictions",
+                "gt_path": "datasets/yolo_all/labels/test"
             }
         },
         {
             "id": "C",
             "preprocess": {
-                "net": "yolo",
+                "net": "unet",
                 "src_path": "datasets/MSLesSeg-Dataset",
-                "dst_path": "datasets/yolo_max_slice_x0",
-                "resize": "320x320",
+                "dst_path": "datasets/unet_all_100",
+                "resize": [320, 320],
                 "split": 0.7,
-                "top_slices": 1,
+                "strategy": "all_slices",
+                "threshold": 100,
                 "super_scale": 1
             },
             "train": {
-                "net": "yolo",
-                "src_path": "datasets/yolo_max_slice_x0",
-                "dst_path": "results/yolo/yolo_max_slice_x0",
+                "net": "unet",
+                "src_path": "datasets/unet_all_100",
+                "dst_path": "results/unet/unet_all_100",
                 "batch_size": 16,
-                "epochs": 50,
+                "epochs": 25,
                 "learning_rate": 0.001
             },
             "predict": {
-                "net": "yolo",
-                "src_path": "datasets/yolo_max_slice_x0",
-                "dst_path": "results/yolo/yolo_max_slice_x0/",
-                "model_path": "results/yolo/yolo_max_slice_x0/train3/weights/best.pt"
+                "net": "unet",
+                "model_path": "results/unet/unet_all_100/models/unet_all_100.pth",
+                "src_path": "datasets/unet_all_100",
+                "dst_path": "results/unet/unet_all_100/predictions"
             },
             "evaluate": {
-                "net": "yolo",
-                "model_path": "results/yolo/yolo_max_slice_x0/train3/weights/best.pt",
-                "src_path": "datasets/yolo_max_slice_x0",
-                "pred_path": "results/yolo/yolo_max_slice_x0/predict/masks",
-                "gt_path": "datasets/yolo_max_slice_x0/labels/val"
+                "net": "unet",
+                "model_path": "results/unet/unet_all_100/models/unet_all_100.pth",
+                "src_path": "datasets/unet_all_100",
+                "pred_path": "results/unet/unet_all_100/predictions",
+                "gt_path": "datasets/unet_all_100/labels/test"
             }
         },
         {
             "id": "D",
             "preprocess": {
-                "net": "yolo",
+                "net": "unet",
                 "src_path": "datasets/MSLesSeg-Dataset",
-                "dst_path": "datasets/yolo_max_slice_x2",
-                "resize": "320x320",
+                "dst_path": "datasets/unet_all_100_x2",
+                "resize": [320, 320],
                 "split": 0.7,
+                "strategy": "all_slices",
+                "threshold": 100,
                 "super_scale": 2
             },
             "train": {
-                "net": "yolo",
-                "src_path": "datasets/yolo_max_slice_x2",
-                "dst_path": "results/yolo/yolo_max_slice_x2",
+                "net": "unet",
+                "src_path": "datasets/unet_all_100_x2",
+                "dst_path": "results/unet/unet_all_100_x2",
                 "batch_size": 16,
-                "epochs": 50,
+                "epochs": 25,
                 "learning_rate": 0.001
             },
             "predict": {
-                "net": "yolo",
-                "src_path": "datasets/yolo_max_slice_x2",
-                "dst_path": "results/yolo/yolo_max_slice_x2/",
-                "model_path": "results/yolo/yolo_max_slice_x2/train/weights/best.pt"
+                "net": "unet",
+                "model_path": "results/unet/unet_all_100_x2/models/unet_all_100_x2.pth",
+                "src_path": "datasets/unet_all_100_x2",
+                "dst_path": "results/unet/unet_all_100_x2/predictions"
+            },
+            "evaluate": {
+                "net": "unet",
+                "model_path": "results/unet/unet_all_100_x2/models/unet_all_100_x2.pth",
+                "src_path": "datasets/unet_all_100_x2",
+                "pred_path": "results/unet/unet_all_100_x2/predictions",
+                "gt_path": "datasets/unet_all_100_x2/labels/test"
             }
         },
         {
             "id": "E",
             "preprocess": {
-                "net": "unet",
+                "net": "yolo",
                 "src_path": "datasets/MSLesSeg-Dataset",
-                "dst_path": "datasets/unet_top3_slice_x0",
-                "resize": "320x320",
+                "dst_path": "datasets/yolo_all_100",
+                "resize": [320, 320],
                 "split": 0.7,
-                "top_slices": 3,
+                "strategy": "all_slices",
+                "threshold": 100,
                 "super_scale": 1
             },
             "train": {
-                "net": "unet",
-                "src_path": "datasets/unet_top3_slice_x0",
-                "dst_path": "models/unet_top3_slice_x0",
+                "net": "yolo",
+                "src_path": "datasets/yolo_all_100",
+                "dst_path": "results/yolo/yolo_all_100",
                 "batch_size": 16,
-                "epochs": 50,
+                "epochs": 25,
                 "learning_rate": 0.001
             },
             "predict": {
-                "net": "unet",
-                "model_path": "results/unet/unet_top3_slice_x0/models/unet_top3_slice_x0.pth",
-                "src_path": "datasets/unet_top3_slice_x0",
-                "dst_path": "results/unet/unet_top3_slice_x0/predictions"
+                "net": "yolo",
+                "model_path": "results/yolo/yolo_all_100/train/weights/best.pt",
+                "src_path": "datasets/yolo_all_100",
+                "dst_path": "results/yolo/yolo_all_100/predictions"
             },
             "evaluate": {
-                "net": "unet",
-                "model_path": "results/unet/unet_top3_slice_x0/models/unet_top3_slice_x0.pth",
-                "src_path": "datasets/unet_top3_slice_x0",
-                "pred_path": "results/unet/unet_top3_slice_x0/predictions",
-                "gt_path": "datasets/unet_top3_slice_x0/labels/val"
+                "net": "yolo",
+                "model_path": "results/yolo/yolo_all_100/train/weights/best.pt",
+                "src_path": "datasets/yolo_all_100",
+                "pred_path": "results/yolo/yolo_all_100/predictions",
+                "gt_path": "datasets/yolo_all_100/labels/test"
             }
         },
         {
             "id": "F",
             "preprocess": {
-                "net": "unet",
+                "net": "yolo",
                 "src_path": "datasets/MSLesSeg-Dataset",
-                "dst_path": "datasets/unet_top3_slice_x2",
-                "resize": "320x320",
+                "dst_path": "datasets/yolo_all_100_x2",
+                "resize": [320, 320],
                 "split": 0.7,
                 "super_scale": 2,
-                "top_slices": 3
+                "threshold": 100,
+                "strategy": "all_slices"
             },
             "train": {
-                "net": "unet",
-                "src_path": "datasets/unet_top3_slice_x2",
-                "dst_path": "models/unet_top3_slice_x2",
+                "net": "yolo",
+                "src_path": "datasets/yolo_all_100_x2",
+                "dst_path": "results/yolo/yolo_all_100_x2",
                 "batch_size": 16,
-                "epochs": 50,
+                "epochs": 25,
                 "learning_rate": 0.001
             },
             "predict": {
-                "net": "unet",
-                "model_path": "results/unet/unet_top3_slice_x2/models/unet_top3_slice_x2.pth",
-                "src_path": "datasets/unet_top3_slice_x2",
-                "dst_path": "results/unet/unet_top3_slice_x2/predictions"
+                "net": "yolo",
+                "src_path": "datasets/yolo_all_100_x2",
+                "dst_path": "results/yolo/yolo_all_100_x2/predictions",
+                "model_path": "results/yolo/yolo_all_100_x2/train/weights/best.pt"
             },
             "evaluate": {
-                "net": "unet",
-                "model_path": "results/unet/unet_top3_slice_x2/models/unet_top3_slice_x2.pth",
-                "src_path": "datasets/unet_top3_slice_x2",
-                "pred_path": "results/unet/unet_top3_slice_x2/predictions",
-                "gt_path": "datasets/unet_top3_slice_x2/labels/val"
+                "net": "yolo",
+                "src_path": "datasets/yolo_all_100_x2",
+                "pred_path": "results/yolo/yolo_all_100_x2/predictions",
+                "model_path": "results/yolo/yolo_all_100_x2/train/weights/best.pt",
+                "gt_path": "datasets/yolo_all_100_x2/labels/test"
             }
         },
         {
             "id": "G",
             "preprocess": {
-                "net": "yolo",
+                "net": "unet",
                 "src_path": "datasets/MSLesSeg-Dataset",
-                "dst_path": "datasets/yolo_top3_slice_x0",
-                "resize": "320x320",
+                "dst_path": "datasets/unet_top5_slice_x0",
+                "resize": [320, 320],
                 "split": 0.7,
-                "top_slices": 3,
+                "strategy": "top_five",
+                "threshold": 0,
                 "super_scale": 1
             },
             "train": {
-                "net": "yolo",
-                "src_path": "datasets/yolo_top3_slice_x0",
-                "dst_path": "results/yolo/yolo_top3_slice_x0",
+                "net": "unet",
+                "src_path": "datasets/unet_top5_slice_x0",
+                "dst_path": "results/unet/unet_top5_slice_x0",
                 "batch_size": 16,
-                "epochs": 50,
+                "epochs": 25,
                 "learning_rate": 0.001
             },
             "predict": {
-                "net": "yolo",
-                "src_path": "datasets/yolo_top3_slice_x0",
-                "dst_path": "results/yolo/yolo_top3_slice_x0/",
-                "model_path": "results/yolo/yolo_top3_slice_x0/train/weights/best.pt"
+                "net": "unet",
+                "model_path": "results/unet/unet_top5_slice_x0/models/unet_top5_slice_x0.pth",
+                "src_path": "datasets/unet_top5_slice_x0",
+                "dst_path": "results/unet/unet_top5_slice_x0/predictions"
+            },
+            "evaluate": {
+                "net": "unet",
+                "model_path": "results/unet/unet_top5_slice_x0/models/unet_top5_slice_x0.pth",
+                "src_path": "datasets/unet_top5_slice_x0",
+                "pred_path": "results/unet/unet_top5_slice_x0/predictions",
+                "gt_path": "datasets/unet_top5_slice_x0/labels/test"
             }
         },
         {
             "id": "H",
             "preprocess": {
+                "net": "unet",
+                "src_path": "datasets/MSLesSeg-Dataset",
+                "dst_path": "datasets/unet_top5_slice_x2",
+                "resize": [320, 320],
+                "split": 0.7,
+                "strategy": "top_five",
+                "threshold": 0,
+                "super_scale": 2
+            },
+            "train": {
+                "net": "unet",
+                "src_path": "datasets/unet_top5_slice_x2",
+                "dst_path": "results/unet/unet_top5_slice_x2",
+                "batch_size": 16,
+                "epochs": 25,
+                "learning_rate": 0.001
+            },
+            "predict": {
+                "net": "unet",
+                "model_path": "results/unet/unet_top5_slice_x2/models/unet_top5_slice_x2.pth",
+                "src_path": "datasets/unet_top5_slice_x2",
+                "dst_path": "results/unet/unet_top5_slice_x2/predictions"
+            },
+            "evaluate": {
+                "net": "unet",
+                "model_path": "results/unet/unet_top5_slice_x2/models/unet_top5_slice_x2.pth",
+                "src_path": "datasets/unet_top5_slice_x2",
+                "pred_path": "results/unet/unet_top5_slice_x2/predictions",
+                "gt_path": "datasets/unet_top5_slice_x2/labels/test"
+            }
+        },
+        {
+            "id": "I",
+            "preprocess": {
                 "net": "yolo",
                 "src_path": "datasets/MSLesSeg-Dataset",
-                "dst_path": "datasets/yolo_top3_slice_x2",
-                "resize": "320x320",
+                "dst_path": "datasets/yolo_top5_slice_x0",
+                "resize": [320, 320],
                 "split": 0.7,
-                "super_scale": 2,
-                "top_slices": 3
+                "strategy": "top_five",
+                "threshold": 0,
+                "super_scale": 1
             },
             "train": {
                 "net": "yolo",
-                "src_path": "datasets/yolo_top3_slice_x2",
-                "dst_path": "results/yolo/yolo_top3_slice_x2",
+                "src_path": "datasets/yolo_top5_slice_x0",
+                "dst_path": "results/yolo/yolo_top5_slice_x0",
                 "batch_size": 16,
-                "epochs": 50,
+                "epochs": 25,
                 "learning_rate": 0.001
             },
             "predict": {
                 "net": "yolo",
-                "src_path": "datasets/yolo_top3_slice_x2",
-                "dst_path": "results/yolo/yolo_top3_slice_x2/",
-                "model_path": "results/yolo/yolo_top3_slice_x2/train/weights/best.pt"
+                "src_path": "datasets/yolo_top5_slice_x0",
+                "dst_path": "results/yolo/yolo_top5_slice_x0/predictions",
+                "model_path": "results/yolo/yolo_top5_slice_x0/train/weights/best.pt"
+            },
+            "evaluate": {
+                "net": "yolo",
+                "src_path": "datasets/yolo_top5_slice_x0",
+                "pred_path": "results/yolo/yolo_top5_slice_x0/predictions",
+                "model_path": "results/yolo/yolo_top5_slice_x0/train/weights/best.pt",
+                "gt_path": "datasets/yolo_top5_slice_x0/labels/test"
+            }
+        },
+        {
+            "id": "J",
+            "preprocess": {
+                "net": "yolo",
+                "src_path": "datasets/MSLesSeg-Dataset",
+                "dst_path": "datasets/yolo_top5_slice_x2",
+                "resize": [320, 320],
+                "split": 0.7,
+                "strategy": "top_five",
+                "threshold": 0,
+                "super_scale": 2
+            },
+            "train": {
+                "net": "yolo",
+                "src_path": "datasets/yolo_top5_slice_x2",
+                "dst_path": "results/yolo/yolo_top5_slice_x2",
+                "batch_size": 16,
+                "epochs": 25,
+                "learning_rate": 0.001
+            },
+            "predict": {
+                "net": "yolo",
+                "src_path": "datasets/yolo_top5_slice_x2",
+                "dst_path": "results/yolo/yolo_top5_slice_x2/predictions",
+                "model_path": "results/yolo/yolo_top5_slice_x2/train/weights/best.pt"
+            },
+            "evaluate": {
+                "net": "yolo",
+                "src_path": "datasets/yolo_top5_slice_x2",
+                "pred_path": "results/yolo/yolo_top5_slice_x2/predictions",
+                "model_path": "results/yolo/yolo_top5_slice_x2/train/weights/best.pt",
+                "gt_path": "datasets/yolo_top5_slice_x2/labels/test"
             }
         }
     ]

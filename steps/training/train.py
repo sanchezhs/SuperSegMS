@@ -10,7 +10,7 @@ def write_train_params(config: TrainConfig) -> None:
     """Write training parameters to a file."""
     with open(os.path.join(config.dst_path, "train_params.json"), "w") as f:
         json.dump(
-            config.as_dict(),
+            config.model_dump(),
             f,
             indent=4,
         )
