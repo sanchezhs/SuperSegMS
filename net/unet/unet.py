@@ -7,6 +7,7 @@ import torch.nn as nn
 import torch.optim as optim
 import segmentation_models_pytorch as smp
 import matplotlib.pyplot as plt
+from sklearn.model_selection import KFold
 import json
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
@@ -77,6 +78,7 @@ class UNet:
         self.mode = mode
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.encoder_name = "resnet34"
+        self.config = config
 
         if mode == "train":
             assert isinstance(config, TrainConfig), "Train mode requires a TrainConfig"
@@ -92,7 +94,11 @@ class UNet:
             self.batch_size = config.batch_size
             self.epochs = config.epochs
             self.learning_rate = config.learning_rate
+            self.metrics = None
             self.dst_path = config.dst_path
+            self.use_kfold = config.use_kfold
+            self.kfold_n_splits = config.kfold_n_splits
+            self.kfold_seed = config.kfold_seed
             self.model_name = self.dst_path.split("/")[-1]
             self.model_path = os.path.join(self.dst_path, "models", f"{self.model_name}.pth")
 
@@ -168,7 +174,54 @@ class UNet:
                 MRIDataset(os.path.join(self.src_path, "images", "test"))
             )
 
-    def train(self) -> None:
+    def train(self):
+        if self.use_kfold:
+            all_images = sorted(os.listdir(os.path.join(self.src_path, "images", "train")))
+            patient_ids = list(set([img.split("_")[0] for img in all_images]))
+            patient_ids = np.array(sorted(patient_ids))
+
+            kf = KFold(n_splits=self.kfold_n_splits, shuffle=True, random_state=self.config.kfold_seed)
+
+            fold_results = []
+            for fold, (train_idx, val_idx) in enumerate(kf.split(patient_ids)):
+                print(f"\n[Fold {fold + 1}]")
+
+                # Seleccionar imágenes por paciente
+                train_pats = set(patient_ids[train_idx])
+                val_pats = set(patient_ids[val_idx])
+
+                def filter_by_patients(files, patients):
+                    return [f for f in files if f.split("_")[0] in patients]
+
+                # Preparar datasets filtrados en memoria
+                train_imgs = filter_by_patients(all_images, train_pats)
+                val_imgs = filter_by_patients(all_images, val_pats)
+
+                # Crear dataloaders directamente (sin tocar disco)
+                train_dataset = MRIDataset.from_filelist(self.src_path, train_imgs, phase="train")
+                val_dataset = MRIDataset.from_filelist(self.src_path, val_imgs, phase="val")
+                
+                train_loader = DataLoader(train_dataset, batch_size=self.batch_size, num_workers=4)
+                val_loader = DataLoader(val_dataset, batch_size=self.batch_size, num_workers=4)
+
+                # Preparar y entrenar modelo
+                model = UNet.from_kfold(fold, train_loader, val_loader)
+                model.train()
+                model.evaluate()
+                fold_results.append(self.metrics)  # suponiendo que model guarda resultados en .metrics
+
+            # Promediar y mostrar resultados
+            mean_metrics = self.compute_mean_std_metrics(fold_results)
+            self.print_summary(mean_metrics)
+
+        else:
+            # comportamiento normal, sin kfold
+            model = UNet(config=self.config, mode="train")
+            model.train()
+            model.evaluate()
+
+
+    def train2(self) -> None:
         logger.info(f"Training model {self.model_name}")
 
         best_val_loss = float("inf")
@@ -251,10 +304,13 @@ class UNet:
 
         logger.info(f"Metrics saved in {self.pred_path}/metrics.json")
         self._write_metrics(SegmentationMetrics(**avg_metrics), format="json")
+        self.metrics = avg_metrics
         logger.info("Average metrics:")
         logger.info(
             "\n\t- ".join([f"{k}: {v:.4f}" for k, v in avg_metrics.items()])
         )
+
+        return avg_metrics
 
     def predict(self) -> None:
         logger.info(f"Predicting images in {self.src_path} and saving to {self.dst_path}")
@@ -274,6 +330,46 @@ class UNet:
             cv2.imwrite(output_path, pred_img)
 
         logger.info(f"Predictions saved in test directory: {self.dst_path}")
+
+    @classmethod
+    def from_kfold(cls, config: TrainConfig, fold: int, train_loader, val_loader):
+        instance = cls.__new__(cls)
+        instance.mode = "train"
+        instance.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        instance.encoder_name = "resnet34"
+        instance.batch_size = config.batch_size
+        instance.epochs = config.epochs
+        instance.learning_rate = config.learning_rate
+        
+        instance.pred_path = os.path.join(instance.dst_path, "preds")
+        os.makedirs(instance.pred_path, exist_ok=True)
+
+        # NEW: estructura unificada con resultados/unet/unet_all/unet_all_fold_{fold}
+        base_name = config.dst_path.split("/")[-1]  # "unet_all"
+        instance.dst_path = os.path.join("results", "unet", base_name, f"{base_name}_fold_{fold}")
+        instance.model_name = f"{base_name}_fold_{fold}"
+        instance.model_path = os.path.join(instance.dst_path, "models", f"{instance.model_name}.pth")
+        
+        os.makedirs(instance.dst_path, exist_ok=True)
+        os.makedirs(os.path.join(instance.dst_path, "models"), exist_ok=True)
+
+        instance.train_loader = train_loader
+        instance.val_loader = val_loader
+
+        instance.model = smp.Unet(
+            encoder_name=instance.encoder_name,
+            in_channels=1,
+            classes=1,
+            activation=None
+        ).to(instance.device)
+
+        instance.criterion = BCEDiceLoss()
+        instance.optimizer = optim.Adam(instance.model.parameters(), lr=instance.learning_rate)
+        instance.scheduler = optim.lr_scheduler.ReduceLROnPlateau(instance.optimizer, mode="min", factor=0.1, patience=5)
+
+        instance.train_losses = []
+        instance.val_losses = []
+        return instance
 
     def _load_model(self) -> None:
         """Load pre-trained model"""
@@ -338,41 +434,16 @@ class UNet:
         elapsed = time.perf_counter() - start
         return pred, elapsed
 
-    def _plot_metrics(self, metrics_list: List[Dict[str, float]]) -> None:
-        output_dir = self.pred_path
-        os.makedirs(output_dir, exist_ok=True)
-
-        # Compute average of each metric
-        avg_metrics = {metric: np.mean([m[metric] for m in metrics_list]) for metric in metrics_list[0]}
-
-        # Prepare data for the table
-        table_data = [[metric.replace("_", " ").title(), value] for metric, value in avg_metrics.items()]
-        headers = ["Metric", "Average Value"]
-
-        # Create a figure for the table
-        fig, ax = plt.subplots(figsize=(8, 4))
-        ax.axis("tight")
-        ax.axis("off")
-        table = ax.table(cellText=table_data, colLabels=headers, loc="center", cellLoc="center")
-        table.auto_set_font_size(False)
-        table.set_fontsize(10)
-        table.auto_set_column_width(col=list(range(len(headers))))
-
-        # Save the table as an image
-        table_path = os.path.join(output_dir, "avg_metrics_table.png")
-        plt.savefig(table_path, bbox_inches="tight")
-        plt.close()
-
-        logger.info(f"Average metrics table saved at {table_path}")
-
-    def _to_dict(self) -> dict:
-        """Convert the UNet instance to a dictionary."""
+    def compute_mean_std_metrics(self, metrics_list):
+        keys = metrics_list[0].keys()
         return {
-            "src_path": self.src_path,
-            "dst_path": self.dst_path,
-            "model_name": self.model_name,
-            "model_path": self.model_path,
-            "batch_size": self.batch_size,
-            "epochs": self.epochs,
-            "learning_rate": self.learning_rate,
+            key: {
+                "mean": float(np.mean([m[key] for m in metrics_list])),
+                "std": float(np.std([m[key] for m in metrics_list]))
+            } for key in keys
         }
+
+    def print_summary(self, metrics_dict):
+        print("\nCross-Validation Summary:\n")
+        for key, val in metrics_dict.items():
+            print(f"{key:15s}: {val['mean']:.4f} ± {val['std']:.4f}")

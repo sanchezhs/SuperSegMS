@@ -44,6 +44,9 @@ class TrainConfig(BaseModel):
     epochs: int = 10
     learning_rate: float = 1e-3
     limit_resources: bool = False
+    use_kfold: bool = False
+    kfold_n_splits: int = 5
+    kfold_seed: int = 42
 
 class EvaluateConfig(BaseModel):
     net: Net
