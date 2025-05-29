@@ -1,85 +1,221 @@
-import yaml
-import os
-import cv2
-import numpy as np
 import json
+import os
 import shutil
 import time
-from ultralytics import YOLO as uYOLO
-from schemas.pipeline_schemas import TrainConfig, PredictConfig, EvaluateConfig
+
+import cv2
+import numpy as np
+import yaml
 from loguru import logger
+from sklearn.model_selection import GroupKFold
+from typing import Optional
+from ultralytics import YOLO as uYOLO
+
+from schemas.pipeline_schemas import EvaluateConfig, PredictConfig, TrainConfig, Net
+from utils.send_msg import send_whatsapp_message
+
 
 class YOLO:
-    def __init__(self, config: TrainConfig|PredictConfig|EvaluateConfig) -> None:
+    def __init__(self, config: TrainConfig | PredictConfig | EvaluateConfig) -> None:
         self.config = config
         self.src_path = config.src_path
 
         if not os.path.exists(self.src_path):
-            raise FileNotFoundError(f"Source path {self.src_path} does not exist. Did you run the preprocess step?")
+            raise FileNotFoundError(
+                f"Source path {self.src_path} does not exist. Did you run the preprocess step?"
+            )
 
         if isinstance(config, TrainConfig):
             self.dst_path = config.dst_path
             self.batch_size = config.batch_size
             self.epochs = config.epochs
+            self.use_kfold = getattr(config, "use_kfold", False)
+            self.kfold_n_splits = getattr(config, "kfold_n_splits", 5)
+            self.kfold_seed = getattr(config, "kfold_seed", 42)
             self.yaml_path = os.path.join(self.dst_path, "data.yaml")
-
-            # Default segmentation model for training
             self.model_path = "./net/yolo/models/yolo11m-seg.pt"
+            os.makedirs(self.dst_path, exist_ok=True)
+            if not self.use_kfold:
+                self.create_yaml()
 
-            self.create_yaml()
         elif isinstance(config, PredictConfig):
             self.dst_path = config.dst_path
             self.model_path = config.model_path
             self.yaml_path = os.path.join(self.dst_path, "data.yaml")
-            
+            os.makedirs(self.dst_path, exist_ok=True)
             self.create_yaml()
+
         elif isinstance(config, EvaluateConfig):
             self.pred_path = config.pred_path
             self.model_path = config.model_path
             self.gt_path = config.gt_path
-        else:
-            raise ValueError("Invalid config type. Allowed types are TrainConfig and PredictConfig.")
 
+        else:
+            raise ValueError(
+                "Invalid config type. Allowed types are TrainConfig, PredictConfig, or EvaluateConfig."
+            )
 
     def train(self) -> None:
-        imgsz = self._get_image_size()[0]
+        if getattr(self, "use_kfold", False):
+            fold_metrics = []
+            # Gather all images and labels from train and val folders
+            img_paths, lbl_paths = [], []
+            for split in ["train", "val"]:
+                img_dir = os.path.join(self.src_path, "images", split)
+                lbl_dir = os.path.join(self.src_path, "labels", split)
+                # breakpoint()
+                for fname in sorted(os.listdir(img_dir)):
+                    if fname.lower().endswith(
+                        (
+                            ".png",
+                            ".jpg",
+                            ".jpeg",
+                        )
+                    ):  # txt for YOLO labels
+                        lbl_name = fname.replace(".jpg", ".txt").replace(".png", ".txt")
+                        img_paths.append(os.path.join(img_dir, fname))
+                        lbl_paths.append(os.path.join(lbl_dir, lbl_name))
+            # Extract patient IDs (assumes filename like 'patientID_...')
+            groups = [os.path.basename(p).split("_")[0] for p in img_paths]
+            gkf = GroupKFold(n_splits=self.kfold_n_splits)
+
+            for fold, (train_idx, val_idx) in enumerate(
+                gkf.split(img_paths, groups=groups)
+            ):
+                logger.info(f"Starting fold {fold+1}/{self.kfold_n_splits}")
+                fold_dir = os.path.join(self.dst_path, f"fold_{fold}")
+                # abs_fold = os.path.abspath(fold_dir)
+                # create directory structure
+                for split in ["train", "val"]:
+                    os.makedirs(os.path.join(fold_dir, "images", split), exist_ok=True)
+                    os.makedirs(os.path.join(fold_dir, "labels", split), exist_ok=True)
+                # copy files
+                for idx in train_idx:
+                    shutil.copy2(img_paths[idx], os.path.join(fold_dir, "images/train"))
+                    shutil.copy2(lbl_paths[idx], os.path.join(fold_dir, "labels/train"))
+                for idx in val_idx:
+                    shutil.copy2(img_paths[idx], os.path.join(fold_dir, "images/val"))
+                    shutil.copy2(lbl_paths[idx], os.path.join(fold_dir, "labels/val"))
+                # write fold-specific YAML
+                data_yaml = {
+                    "path": fold_dir,
+                    "train": "images/train",
+                    "val": "images/val",
+                    "nc": 1,
+                    "names": ["lesion"],
+                    "task": "segment",
+                }
+                fold_yaml = os.path.join(fold_dir, "data.yaml")
+                with open(fold_yaml, "w") as f:
+                    yaml.dump(data_yaml, f, default_flow_style=False)
+                # train model
+                model = uYOLO(self.model_path)
+                model.train(
+                    data=fold_yaml,
+                    epochs=self.epochs,
+                    batch=self.batch_size,
+                    save=True,
+                    imgsz=self._get_image_size(),
+                    project=fold_dir,
+                    device="cuda",
+                    verbose=True,
+                )
+
+                # evaluate fold
+                eval_cfg = EvaluateConfig(
+                    net=Net.YOLO,
+                    src_path=fold_dir,
+                    pred_path=os.path.join(fold_dir, "predictions"),
+                    model_path=os.path.join(fold_dir, "train", "weights", "best.pt"),
+                    gt_path=os.path.join(fold_dir, "images", "val"),
+                )
+                evaluator = YOLO(eval_cfg)
+
+                # predict on validation set
+                evaluator.predict(
+                    image_dir=os.path.join(fold_dir, "images", "val"),
+                    pred_dir=os.path.join(fold_dir, "predictions"),
+                )
+                
+                # evaluate predictions
+                evaluator.evaluate()
+                # read per-fold metrics
+                with open(os.path.join(fold_dir, "predictions", "metrics.json"), "r") as mf:
+                    metrics = json.load(mf)
+
+                fold_metrics.append(metrics)
+
+                send_whatsapp_message(
+                    f"YOLO Fold {fold+1}/{self.kfold_n_splits} completed. "
+                    f"Metrics: {json.dumps(metrics, indent=4)}"
+                )
+
+            # aggregate and save summary
+            summary = {
+                k: {
+                    "mean": float(np.mean([m[k] for m in fold_metrics])),
+                    "std": float(np.std([m[k] for m in fold_metrics])),
+                }
+                for k in fold_metrics[0]
+            }
+            with open(os.path.join(self.dst_path, "cv_summary.json"), "w") as sf:
+                json.dump(summary, sf, indent=4)
+            logger.success(
+                f"Cross-validation summary saved to {os.path.join(self.dst_path, 'cv_summary.json')}"
+            )
+
+            send_whatsapp_message(
+                f"YOLO Cross-validation completed. Summary: {json.dumps(summary, indent=4)}"
+            )
+
+            return summary
+
+        else:
+            # Standard single-run training
+            self.create_yaml()
+            model = uYOLO(self.model_path)
+            model.train(
+                data=self.yaml_path,
+                epochs=self.epochs,
+                batch=self.batch_size,
+                save=True,
+                imgsz=None,
+                project=self.dst_path,
+                device="cuda",
+                verbose=True,
+            )
+
+    def predict(self, image_dir: Optional[str] = None, pred_dir: Optional[str] = None):
         model = uYOLO(self.model_path)
-        
-        model.train(
-            data=self.yaml_path,
-            epochs=self.epochs,
-            batch=self.batch_size,
-            save=True,
-            imgsz=imgsz,
-            project=self.dst_path,
-            device="cuda",
-            verbose=True,
+
+        if image_dir is None:
+            image_dir = os.path.join(self.src_path, "images", "test")
+
+        if pred_dir is None:
+            pred_dir = os.path.join(self.dst_path, "predict")
+
+        if os.path.exists(pred_dir):
+            logger.info(f"Prediction folder already exists: {pred_dir}. Removing it.")
+            shutil.rmtree(pred_dir)
+
+        os.makedirs(pred_dir, exist_ok=True)
+
+        image_files = sorted(
+            [
+                f
+                for f in os.listdir(image_dir)
+                if f.lower().endswith((".png", ".jpg", ".jpeg"))
+            ]
         )
-
-    def predict(self) -> None:
-        model = uYOLO(self.model_path)
-
-        predict_dir = os.path.join(self.dst_path, "predict")
-        if os.path.exists(predict_dir):
-            logger.info(f"Prediction folder already exists: {predict_dir}. Removing it.")
-            shutil.rmtree(predict_dir)
-
-        image_dir = os.path.join(self.src_path, "images", "test")
-        image_files = sorted([
-            f for f in os.listdir(image_dir)
-            if f.lower().endswith((".png", ".jpg", ".jpeg"))
-        ])
-
         inference_times = []
 
         for img_file in image_files:
             image_path = os.path.join(image_dir, img_file)
-
             start = time.perf_counter()
             model.predict(
                 source=image_path,
-                project=self.dst_path,
-                name="predict",
+                project=pred_dir,
+                name="",  # disables subfolder creation
                 save_txt=True,
                 save_conf=True,
                 save_crop=False,
@@ -88,15 +224,13 @@ class YOLO:
             )
             elapsed = time.perf_counter() - start
             inference_times.append(elapsed)
-            logger.debug(f"Inference time for {img_file}: {elapsed:.6f} s")
 
-        # Guardar tiempos
-        times_path = os.path.join(self.dst_path, "predict", "inference_times.json")
-        with open(times_path, "w") as f:
+        with open(os.path.join(f"{pred_dir}/predict", "inference_times.json"), "w") as f:
             json.dump(inference_times, f, indent=4)
-        logger.success(f"Inference times saved to {times_path}")
 
-        self.draw_predictions()
+        logger.success(f"Inference times saved to {os.path.join(pred_dir, 'inference_times.json')}")
+
+        self.draw_predictions(pred_dir=pred_dir, image_dir=image_dir)
 
     def evaluate(self) -> None:
         """Evaluate the YOLO predictions using the ground truth masks."""
@@ -104,11 +238,15 @@ class YOLO:
 
         times_path = os.path.join(self.pred_path, "predict", "inference_times.json")
         if not os.path.exists(times_path):
-            raise FileNotFoundError(f"Times path {times_path} does not exist. Did you run the predict step?")
+            raise FileNotFoundError(
+                f"Times path {times_path} does not exist. Did you run the predict step?"
+            )
 
         print(f"Loading inference times from {times_path}")
         if not os.path.exists(self.pred_path):
-            raise FileNotFoundError(f"Prediction path {self.pred_path} does not exist. Did you run the predict step?")
+            raise FileNotFoundError(
+                f"Prediction path {self.pred_path} does not exist. Did you run the predict step?"
+            )
 
         mask_dir = os.path.join(self.pred_path, "masks")
         image_names = sorted(os.listdir(mask_dir))
@@ -119,7 +257,9 @@ class YOLO:
             gt_mask = cv2.imread(os.path.join(self.gt_path, name), cv2.IMREAD_GRAYSCALE)
 
             if pred_mask is None or gt_mask is None:
-                logger.warning(f"Skipping {name} due to missing prediction or ground truth.")
+                logger.warning(
+                    f"Skipping {name} due to missing prediction or ground truth."
+                )
                 continue
 
             pred_bin = (pred_mask > 127).astype(np.uint8)
@@ -141,26 +281,35 @@ class YOLO:
             )
             specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
 
-            metrics.append({
-                "image": name,
-                "iou": iou,
-                "dice_score": dice,
-                "precision": precision,
-                "recall": recall,
-                "f1_score": f1_score,
-                "specificity": specificity
-            })
+            metrics.append(
+                {
+                    "image": name,
+                    "iou": iou,
+                    "dice_score": dice,
+                    "precision": precision,
+                    "recall": recall,
+                    "f1_score": f1_score,
+                    "specificity": specificity,
+                }
+            )
 
         avg_metrics = {
             key: np.mean([m[key] for m in metrics])
-            for key in ["iou", "dice_score", "precision", "recall", "f1_score", "specificity"]
+            for key in [
+                "iou",
+                "dice_score",
+                "precision",
+                "recall",
+                "f1_score",
+                "specificity",
+            ]
         }
 
-        with open(times_path, "r") as f:
-            inference_times = json.load(f)
+        # with open(times_path, "r") as f:
+        #     inference_times = json.load(f)
 
-        avg_inference_time = float(np.mean(inference_times))
-        avg_metrics["inference_time"] = avg_inference_time
+        # avg_inference_time = float(np.mean(inference_times))
+        # avg_metrics["inference_time"] = avg_inference_time
 
         logger.info("Average metrics:")
         for k, v in avg_metrics.items():
@@ -173,54 +322,49 @@ class YOLO:
         logger.success(f"Metrics saved to {metrics_path}")
         logger.success("Evaluation completed.")
 
+        return avg_metrics
+
     def create_yaml(self) -> None:
-        """Creates a YAML file with the dataset configuration for YOLO training."""
-        os.makedirs(self.dst_path, exist_ok=True)
-        # Yolo ultralytics adds an additional "datasets" folder to the path
-        parts = self.src_path.split("/")
-        path = "/".join(parts[-1:])
         data_yaml = {
-            "path": path,
+            "path": os.path.abspath(self.src_path),
             "train": "images/train",
             "val": "images/val",
             "nc": 1,
             "names": ["lesion"],
             "task": "segment",
         }
-
         with open(self.yaml_path, "w") as f:
             yaml.dump(data_yaml, f, default_flow_style=False)
 
-    def draw_predictions(self) -> None:
-        output_dir = os.path.join(self.dst_path, "masks")
+    def draw_predictions(self, pred_dir: str, image_dir: str) -> None:
+        output_dir = os.path.join(pred_dir, "masks")
         os.makedirs(output_dir, exist_ok=True)
 
-        logger.info(f"Creadted output directory for image masks: {output_dir}")
-        prediction_dir = os.path.join(self.dst_path, "predict", "labels")
-
+        prediction_dir = os.path.join(pred_dir, "predict", "labels")
         if not os.path.exists(prediction_dir):
-            raise FileNotFoundError(f"Prediction directory {prediction_dir} does not exist. Did you run the predict step?")
+            raise FileNotFoundError(
+                f"Prediction directory {prediction_dir} does not exist. Did you run the predict step?"
+            )
 
-        img_size = self._get_image_size()
-        image_dir = os.path.join(self.src_path, "images", "test")
-        image_files = sorted([f for f in os.listdir(image_dir) if f.endswith((".png", ".jpg"))])
+        image_files = sorted(
+            [f for f in os.listdir(image_dir) if f.endswith((".png", ".jpg"))]
+        )
 
         for image_file in image_files:
             base_name = os.path.splitext(image_file)[0]
-            prediction_file = f"{base_name}.txt"
-
+            prediction_path = os.path.join(prediction_dir, f"{base_name}.txt")
             image_path = os.path.join(image_dir, image_file)
-            prediction_path = os.path.join(prediction_dir, prediction_file)
 
             if not os.path.exists(prediction_path):
-                logger.info(f"Warning: Prediction not found for {image_file}")
+                logger.warning(f"Prediction not found for {image_file}")
                 continue
 
             img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
             if img is None:
-                logger.warning(f"Error: Could not load image {image_path}")
+                logger.warning(f"Could not load image {image_path}")
                 continue
 
+            img_size = self._get_image_size()
             img = cv2.resize(img, img_size[:2])
             mask = np.zeros_like(img)
 
@@ -229,32 +373,98 @@ class YOLO:
 
             for line in lines:
                 values = list(map(float, line.split()))
-
                 if len(values) > 2:
                     coords = values[1:]
-
                     if len(coords) % 2 != 0:
-                        logger.warning(f"Odd number of coordinates in {line}, discarding last value.")
                         coords = coords[:-1]
-
                     if len(coords) >= 4:
                         points = np.array(coords).reshape(-1, 2)
                         points[:, 0] *= img_size[1]
                         points[:, 1] *= img_size[0]
                         points = points.astype(np.int32)
-
-                        cv2.polylines(mask, [points], isClosed=True, color=255, thickness=1)
                         cv2.fillPoly(mask, [points], color=255)
 
-            dst_path = os.path.join(output_dir, f"{base_name}.png")
-            cv2.imwrite(dst_path, mask)
-            logger.info(f"Saved: {dst_path}")
-            
+            cv2.imwrite(os.path.join(output_dir, f"{base_name}.png"), mask)
+            logger.info(f"Saved: {os.path.join(output_dir, f'{base_name}.png')}")
+
         logger.success("Predictions drawn and saved correctly.")
+
+
+    # def draw_predictions(self, dst_path: Optional[str]) -> None:
+    #     if dst_path:
+    #         self.dst_path = dst_path
+    #         img_val_dir = "val" # If kfold test is val, otherwise it is test
+    #     output_dir = os.path.join(self.dst_path, "masks")
+    #     os.makedirs(output_dir, exist_ok=True)
+
+    #     logger.info(f"Creadted output directory for image masks: {output_dir}")
+    #     prediction_dir = os.path.join(self.dst_path, "predict", "labels")
+
+    #     if not os.path.exists(prediction_dir):
+    #         raise FileNotFoundError(
+    #             f"Prediction directory {prediction_dir} does not exist. Did you run the predict step?"
+    #         )
+
+    #     img_size = self._get_image_size()
+    #     image_dir = os.path.join(self.src_path, "images", img_val_dir)
+    #     image_files = sorted(
+    #         [f for f in os.listdir(image_dir) if f.endswith((".png", ".jpg"))]
+    #     )
+
+    #     for image_file in image_files:
+    #         base_name = os.path.splitext(image_file)[0]
+    #         prediction_file = f"{base_name}.txt"
+
+    #         image_path = os.path.join(image_dir, image_file)
+    #         prediction_path = os.path.join(prediction_dir, prediction_file)
+
+    #         if not os.path.exists(prediction_path):
+    #             logger.info(f"Warning: Prediction not found for {image_file}")
+    #             continue
+
+    #         img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    #         if img is None:
+    #             logger.warning(f"Error: Could not load image {image_path}")
+    #             continue
+
+    #         img = cv2.resize(img, img_size[:2])
+    #         mask = np.zeros_like(img)
+
+    #         with open(prediction_path, "r") as f:
+    #             lines = f.readlines()
+
+    #         for line in lines:
+    #             values = list(map(float, line.split()))
+
+    #             if len(values) > 2:
+    #                 coords = values[1:]
+
+    #                 if len(coords) % 2 != 0:
+    #                     logger.warning(
+    #                         f"Odd number of coordinates in {line}, discarding last value."
+    #                     )
+    #                     coords = coords[:-1]
+
+    #                 if len(coords) >= 4:
+    #                     points = np.array(coords).reshape(-1, 2)
+    #                     points[:, 0] *= img_size[1]
+    #                     points[:, 1] *= img_size[0]
+    #                     points = points.astype(np.int32)
+
+    #                     cv2.polylines(
+    #                         mask, [points], isClosed=True, color=255, thickness=1
+    #                     )
+    #                     cv2.fillPoly(mask, [points], color=255)
+
+    #         dst_masks_path = os.path.join(output_dir, f"{base_name}.png")
+    #         cv2.imwrite(dst_masks_path, mask)
+    #         logger.info(f"Saved: {dst_masks_path}")
+
+    #     logger.success("Predictions drawn and saved correctly.")
 
     def _get_image_size(self) -> tuple[int, int]:
         """Get the image size from the data.yaml file."""
-        path = self.src_path + "/images/test"
+        path = self.src_path + "/images/train"
         img = os.listdir(path)
         img = os.path.join(path, img[0])
         img = cv2.imread(img)

@@ -600,6 +600,10 @@ def preprocess(config: PreprocessConfig) -> None:
     src_path = config.src_path
     dst_path = config.dst_path
 
+    if not os.path.exists(src_path):
+        logger.info(f"Source path {src_path} does not exist. Creating it.")
+        os.makedirs(src_path, exist_ok=True)
+
     match net:
         case Net.UNET:
             unet_process_imgs(

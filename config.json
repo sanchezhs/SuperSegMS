@@ -5,7 +5,7 @@
             "preprocess": {
                 "net": "unet",
                 "src_path": "datasets/MSLesSeg-Dataset",
-                "dst_path": "datasets/unet_all",
+                "dst_path": "datasets/unet_all_kfolds",
                 "resize": [320, 320],
                 "split": 0.7,
                 "strategy": "all_slices",
@@ -15,8 +15,9 @@
             "train": {
                 "net": "unet",
                 "src_path": "datasets/unet_all",
-                "dst_path": "results/unet/unet_all",
+                "dst_path": "results/unet/unet_all_kfolds",
                 "batch_size": 16,
+                "use_kfold": true,
                 "epochs": 25,
                 "learning_rate": 0.001
             },
@@ -49,7 +50,8 @@
             "train": {
                 "net": "yolo",
                 "src_path": "datasets/yolo_all",
-                "dst_path": "results/yolo/yolo_all",
+                "dst_path": "results/yolo/yolo_all_kfold",
+                "use_kfold": true,
                 "batch_size": 16,
                 "epochs": 25,
                 "learning_rate": 0.001
@@ -83,8 +85,9 @@
             "train": {
                 "net": "unet",
                 "src_path": "datasets/unet_all_100",
-                "dst_path": "results/unet/unet_all_100",
+                "dst_path": "results/unet/unet_all_100_kfolds",
                 "batch_size": 16,
+                "use_kfold": true,
                 "epochs": 25,
                 "learning_rate": 0.001
             },
@@ -117,7 +120,8 @@
             "train": {
                 "net": "unet",
                 "src_path": "datasets/unet_all_100_x2",
-                "dst_path": "results/unet/unet_all_100_x2",
+                "dst_path": "results/unet/unet_all_100_x2_kfolds",
+                "use_kfold": true,
                 "batch_size": 16,
                 "epochs": 25,
                 "learning_rate": 0.001
@@ -151,7 +155,8 @@
             "train": {
                 "net": "yolo",
                 "src_path": "datasets/yolo_all_100",
-                "dst_path": "results/yolo/yolo_all_100",
+                "dst_path": "results/yolo/yolo_all_100_kfolds",
+                "use_kfold": true,
                 "batch_size": 16,
                 "epochs": 25,
                 "learning_rate": 0.001
@@ -185,7 +190,8 @@
             "train": {
                 "net": "yolo",
                 "src_path": "datasets/yolo_all_100_x2",
-                "dst_path": "results/yolo/yolo_all_100_x2",
+                "dst_path": "results/yolo/yolo_all_100_x2_kfolds",
+                "use_kfold": true,
                 "batch_size": 16,
                 "epochs": 25,
                 "learning_rate": 0.001
@@ -219,7 +225,8 @@
             "train": {
                 "net": "unet",
                 "src_path": "datasets/unet_top5_slice_x0",
-                "dst_path": "results/unet/unet_top5_slice_x0",
+                "dst_path": "results/unet/unet_top5_slice_x0_kfolds",
+                "use_kfold": true,
                 "batch_size": 16,
                 "epochs": 25,
                 "learning_rate": 0.001
@@ -253,7 +260,8 @@
             "train": {
                 "net": "unet",
                 "src_path": "datasets/unet_top5_slice_x2",
-                "dst_path": "results/unet/unet_top5_slice_x2",
+                "dst_path": "results/unet/unet_top5_slice_x2_kfolds",
+                "use_kfold": true,
                 "batch_size": 16,
                 "epochs": 25,
                 "learning_rate": 0.001
@@ -287,7 +295,8 @@
             "train": {
                 "net": "yolo",
                 "src_path": "datasets/yolo_top5_slice_x0",
-                "dst_path": "results/yolo/yolo_top5_slice_x0",
+                "dst_path": "results/yolo/yolo_top5_slice_x0_kfolds",
+                "use_kfold": true,
                 "batch_size": 16,
                 "epochs": 25,
                 "learning_rate": 0.001
@@ -321,7 +330,8 @@
             "train": {
                 "net": "yolo",
                 "src_path": "datasets/yolo_top5_slice_x2",
-                "dst_path": "results/yolo/yolo_top5_slice_x2",
+                "dst_path": "results/yolo/yolo_top5_slice_x2_kfolds",
+                "use_kfold": true,
                 "batch_size": 16,
                 "epochs": 25,
                 "learning_rate": 0.001

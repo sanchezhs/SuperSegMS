@@ -15,7 +15,7 @@ def write_train_params(config: TrainConfig) -> None:
             indent=4,
         )
     logger.info(
-        f"Training parameters saved to {os.path.join(config.dst_path, "train_params.json")}"
+        f"Training parameters saved to {os.path.join(config.dst_path, 'train_params.json')}"
     )
 
 
