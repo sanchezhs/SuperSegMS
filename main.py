@@ -94,14 +94,9 @@ if __name__ == "__main__":
                 break
             run_step(config)
 
-    upload_file_to_bucket(
-            bucket_name=BUCKET,
-            local_path="results",
-            destination_path="resultados.tar.gz",
-        )
-
-    upload_file_to_bucket(
-        bucket_name=BUCKET,
-        local_path="datasets",
-        destination_path="datasets.tar.gz",
-    )
+        upload_file_to_bucket(
+                bucket_name=BUCKET,
+                local_path="results",
+                destination_path="resultados.tar.gz",
+            )
+        logger.info(f"Results for experiment '{experiment_id}' uploaded to bucket '{BUCKET}'.")

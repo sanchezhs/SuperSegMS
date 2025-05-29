@@ -7,31 +7,6 @@ from datetime import datetime
 
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "gcs_api.json"
 
-
-# def upload_directory_to_bucket(bucket_name: str, source_dir: str, destination_prefix: str = "", timestamp: bool = False) -> None:
-#     logger.info(f"Uploading directory '{source_dir}' to bucket '{bucket_name}' with prefix '{destination_prefix}'")
-
-#     destination_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
-#     destination_prefix = f"{destination_prefix}/{destination_id}" if destination_prefix else destination_id
-
-#     try:
-#         client = storage.Client()
-#         bucket = client.bucket(bucket_name)
-
-#         for root, _, files in os.walk(source_dir):
-#             for file in files:
-#                 local_path = os.path.join(root, file)
-#                 relative_path = os.path.relpath(local_path, source_dir)
-#                 blob_path = os.path.join(destination_prefix, relative_path).replace("\\", "/")
-
-#                 blob = bucket.blob(blob_path)
-#                 blob.upload_from_filename(local_path)
-#                 logger.info(f"✅ Uploaded {local_path} → gs://{bucket_name}/{blob_path}")
-#     except Exception as e:
-#         logger.error(f"Error uploading directory to bucket: {e}")
-#         raise e
-
-
 def upload_file_to_bucket(
     bucket_name: str,
     local_path: str,
