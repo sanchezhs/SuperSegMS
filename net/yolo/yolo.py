@@ -58,44 +58,52 @@ class YOLO:
     def train(self) -> None:
         if getattr(self, "use_kfold", False):
             fold_metrics = []
-            # Gather all images and labels from train and val folders
-            img_paths, lbl_paths = [], []
+            image_mask_group_quads = []
+
             for split in ["train", "val"]:
                 img_dir = os.path.join(self.src_path, "images", split)
-                lbl_dir = os.path.join(self.src_path, "labels", split)
-                # breakpoint()
+                mask_dir = os.path.join(self.src_path, "labels", split)
                 for fname in sorted(os.listdir(img_dir)):
-                    if fname.lower().endswith(
-                        (
-                            ".png",
-                            ".jpg",
-                            ".jpeg",
-                        )
-                    ):  # txt for YOLO labels
-                        lbl_name = fname.replace(".jpg", ".txt").replace(".png", ".txt")
-                        img_paths.append(os.path.join(img_dir, fname))
-                        lbl_paths.append(os.path.join(lbl_dir, lbl_name))
-            # Extract patient IDs (assumes filename like 'patientID_...')
-            groups = [os.path.basename(p).split("_")[0] for p in img_paths]
+                    if fname.lower().endswith((".png", ".jpg", ".jpeg")):
+                        base = os.path.splitext(fname)[0]
+                        mask_name = f"{base}.txt"  # o .png si estás usando segmentación
+                        img_path = os.path.join(img_dir, fname)
+                        txt_mask_path = os.path.join(mask_dir, mask_name)
+                        img_mask_path = os.path.join(mask_dir, f"{base}.png")
+                        if not os.path.exists(txt_mask_path):
+                            raise FileNotFoundError(f"Missing mask for {img_path}")
+                        group_id = base.split('_')[0]  # e.g., "P11"
+                        image_mask_group_quads.append((img_path, txt_mask_path, img_mask_path, group_id))
+
+            all_img_paths, all_txt_mask_paths, all_img_mask_paths, group_labels = zip(*image_mask_group_quads)
             gkf = GroupKFold(n_splits=self.kfold_n_splits)
 
             for fold, (train_idx, val_idx) in enumerate(
-                gkf.split(img_paths, groups=groups)
+                gkf.split(all_img_paths, groups=group_labels)
             ):
-                logger.info(f"Starting fold {fold+1}/{self.kfold_n_splits}")
+                train_patients = set(group_labels[i] for i in train_idx)
+                val_patients = set(group_labels[i] for i in val_idx)
+                print(f"Fold {fold}:")
+                print(f"  Train patients: {len(train_patients)}, Val patients: {len(val_patients)}")
+                print(f"  Train images: {len(train_idx)}, Val images: {len(val_idx)}")
+                
                 fold_dir = os.path.join(self.dst_path, f"fold_{fold}")
-                # abs_fold = os.path.abspath(fold_dir)
-                # create directory structure
                 for split in ["train", "val"]:
                     os.makedirs(os.path.join(fold_dir, "images", split), exist_ok=True)
                     os.makedirs(os.path.join(fold_dir, "labels", split), exist_ok=True)
-                # copy files
+
                 for idx in train_idx:
-                    shutil.copy2(img_paths[idx], os.path.join(fold_dir, "images/train"))
-                    shutil.copy2(lbl_paths[idx], os.path.join(fold_dir, "labels/train"))
+                    shutil.copy2(all_img_paths[idx], os.path.join(fold_dir, "images/train"))
+                    shutil.copy2(all_txt_mask_paths[idx], os.path.join(fold_dir, "labels/train"))
+                    shutil.copy2(all_img_mask_paths[idx], os.path.join(fold_dir, "labels/train"))
                 for idx in val_idx:
-                    shutil.copy2(img_paths[idx], os.path.join(fold_dir, "images/val"))
-                    shutil.copy2(lbl_paths[idx], os.path.join(fold_dir, "labels/val"))
+                    img_path = all_img_paths[idx]
+                    txt_mask_path = all_txt_mask_paths[idx]
+                    img_mask_path = all_img_mask_paths[idx]
+                    shutil.copy2(img_path, os.path.join(fold_dir, "images", "val", os.path.basename(img_path)))
+                    shutil.copy2(txt_mask_path, os.path.join(fold_dir, "labels", "val", os.path.basename(txt_mask_path)))
+                    shutil.copy2(img_mask_path, os.path.join(fold_dir, "labels", "val", os.path.basename(img_mask_path)))
+
                 # write fold-specific YAML
                 data_yaml = {
                     "path": fold_dir,
@@ -127,7 +135,7 @@ class YOLO:
                     src_path=fold_dir,
                     pred_path=os.path.join(fold_dir, "predictions"),
                     model_path=os.path.join(fold_dir, "train", "weights", "best.pt"),
-                    gt_path=os.path.join(fold_dir, "images", "val"),
+                    gt_path=os.path.join(fold_dir, "labels", "val"),
                 )
                 evaluator = YOLO(eval_cfg)
 
