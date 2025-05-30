@@ -204,8 +204,8 @@ class UNet:
         logger.info(f"Training model {self.model_name}")
 
         if getattr(self, 'use_kfold', False):
-            # combine train, val
-            splits = ["train", "val"]
+            # combine train, val, test
+            splits = ["train", "val", "test"]
             datasets = [
                 MRIDataset(
                     os.path.join(self.src_path, "images", s),

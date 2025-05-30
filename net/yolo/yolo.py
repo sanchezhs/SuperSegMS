@@ -60,7 +60,7 @@ class YOLO:
             fold_metrics = []
             image_mask_group_quads = []
 
-            for split in ["train", "val"]:
+            for split in ["train", "val", "test"]:
                 img_dir = os.path.join(self.src_path, "images", split)
                 mask_dir = os.path.join(self.src_path, "labels", split)
                 for fname in sorted(os.listdir(img_dir)):
