@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, model_validator
 # (X,Y,Z) = (width, height, depth)
 NIFTI_SIZE = (182, 218)
 DEF_RESIZE = (320, 320)
+ALL_STEPS = ["preprocess", "train", "predict", "evaluate"]
 
 class Net(str, Enum):
     UNET = "unet"
@@ -45,7 +46,7 @@ class TrainConfig(BaseModel):
     learning_rate: float = 1e-3
     limit_resources: bool = False
     use_kfold: bool = False
-    kfold_n_splits: int = 5 # 5
+    kfold_n_splits: int = 5
     kfold_seed: int = 42
 
 class EvaluateConfig(BaseModel):

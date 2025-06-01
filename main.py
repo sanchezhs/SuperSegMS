@@ -1,6 +1,6 @@
 import os
-import sys
 import json
+import argparse
 from loguru import logger
 from pydantic import ValidationError
 from utils.gcs import upload_file_to_bucket
@@ -11,6 +11,7 @@ from schemas.pipeline_schemas import (
     TrainConfig,
     PredictConfig,
     EvaluateConfig,
+    ALL_STEPS,
 )
 
 from steps.preprocessing.preprocess import preprocess
@@ -18,8 +19,8 @@ from steps.training.train import train
 from steps.prediction.predict import predict
 from steps.evaluation.evaluate import evaluate
 
-ALL_STEPS = ["preprocess", "train", "predict", "evaluate"]
-BUCKET = "tfm-training-results"
+DEFAULT_BUCKET = "example-bucket"
+DEFAULT_DEST_PATH = "results/archive.tar.gz"
 
 def parse_json_experiment(config_path: str, experiment_id: str, step: str) -> PipelineConfig:
     logger.info(f"Parsing JSON config from: `{config_path}` | Experiment ID: `{experiment_id}` | Step: `{step}`")
@@ -66,37 +67,101 @@ def run_step(config: PipelineConfig):
     else:
         raise ValueError(f"Unknown step '{config.step}'")
 
+def expand_experiment_range(expr: str) -> list[str]:
+    """
+    If expr is a single letter range like "A-C", expand it to ["A", "B", "C"].
+    Otherwise, split on commas and return the list.
+    """
+    if "-" in expr and len(expr.split('-')) == 2:
+        start, end = expr.split("-")
+        if len(start) == 1 and len(end) == 1 and start.isalpha() and end.isalpha():
+            return [chr(i) for i in range(ord(start), ord(end) + 1)]
+    return expr.split(",")
+
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python main.py <experiment_ids> [steps]")
-        print("Examples:")
-        print("  python main.py A")
-        print("  python main.py A,B")
-        print("  python main.py A preprocess,train")
-        print("  python main.py A,B,C predict")
-        print("  python main.py A-C train")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(
+        description="Run one or more pipeline experiments with specified steps."
+    )
 
-    experiment_ids = sys.argv[1].split(",")
-    if len(experiment_ids) == 1 and "-" in experiment_ids[0]:
-        start, end = experiment_ids[0].split("-")
-        experiment_ids = [chr(i) for i in range(ord(start), ord(end) + 1)]
+    parser.add_argument(
+        "experiment_ids",
+        help=(
+            "Comma-separated list of experiment IDs to run. "
+            "You can specify a range with a dash, e.g. 'A-C' expands to ['A', 'B', 'C']."
+        ),
+    )
+    parser.add_argument(
+        "--steps",
+        default=",".join(ALL_STEPS),
+        help=(
+            "Comma-separated list of steps to run for each experiment. "
+            f"Allowed values: {ALL_STEPS}. Defaults to all steps."
+        ),
+    )
+    parser.add_argument(
+        "--config",
+        default="config.json",
+        help="Path to the JSON configuration file. Defaults to 'config.json'.",
+    )
+    parser.add_argument(
+        "--upload",
+        action="store_true",
+        help="If set, upload results to a GCS bucket after each experiment run.",
+    )
+    parser.add_argument(
+        "--bucket",
+        default=DEFAULT_BUCKET,
+        help=f"Name of the GCS bucket to upload to. Defaults to '{DEFAULT_BUCKET}'.",
+    )
+    parser.add_argument(
+        "--destination",
+        default=DEFAULT_DEST_PATH,
+        help=(
+            "Destination path (including filename) inside the bucket for the uploaded archive. "
+            f"Defaults to '{DEFAULT_DEST_PATH}'."
+        ),
+    )
 
-    steps = sys.argv[2].split(",") if len(sys.argv) > 2 else ALL_STEPS
+    args = parser.parse_args()
 
+    # Expand and validate experiment IDs
+    experiment_ids = []
+    for expr in args.experiment_ids.split(","):
+        expr = expr.strip()
+        if "-" in expr:
+            experiment_ids.extend(expand_experiment_range(expr))
+        else:
+            experiment_ids.append(expr)
+
+    # Parse steps and validate against ALL_STEPS
+    steps = [s.strip() for s in args.steps.split(",")]
+    invalid_steps = [s for s in steps if s not in ALL_STEPS]
+    if invalid_steps:
+        logger.error(f"Invalid step(s) specified: {invalid_steps}. Allowed steps are: {ALL_STEPS}")
+        exit(1)
+
+    # Main loop over experiments
     for experiment_id in experiment_ids:
         logger.info(f"Running experiment '{experiment_id}' with steps: {steps}")
         for step in steps:
-            config = parse_json_experiment("config.json", experiment_id, step)
-             # Skip evaluation for k-fold training
-            if step == "evaluate" and config.train_config.use_kfold:
+            config = parse_json_experiment(args.config, experiment_id, step)
+            # Skip evaluation for k-fold training
+            if step == "evaluate" and config.train_config and config.train_config.use_kfold:
+                logger.info(f"Skipping evaluation for '{experiment_id}' because use_kfold=True.")
                 break
             run_step(config)
 
-        upload_file_to_bucket(
-                bucket_name=BUCKET,
+        # If upload flag is set, upload the results directory to the bucket
+        if args.upload:
+            upload_file_to_bucket(
+                bucket_name=args.bucket,
                 local_path="results",
-                destination_path="resultados.tar.gz",
+                destination_path=args.destination,
             )
-        logger.info(f"Results for experiment '{experiment_id}' uploaded to bucket '{BUCKET}'.")
+            logger.info(
+                f"Results for experiment '{experiment_id}' uploaded to bucket '{args.bucket}' "
+                f"at '{args.destination}'."
+            )
+        else:
+            logger.info(f"Upload skipped for experiment '{experiment_id}'.")
