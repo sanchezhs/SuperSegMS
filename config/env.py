@@ -7,8 +7,7 @@ load_dotenv()
 
 def get_env() -> EnvConfig:
     return EnvConfig(
-        GCS_BUCKET=os.getenv("GCS_BUCKET", "tfm-training-results"),
-        GCS_DEST_PATH=os.getenv("GCS_DEST_PATH", "resultados.tar.gz"),
+        CREDENTIALS_PATH=os.getenv("CREDENTIALS_PATH", "credentials.json"),
         CMB_API_KEY=os.getenv("CMB_API_KEY"),
         PHONE_NUMBER=os.getenv("PHONE_NUMBER"),
 )
