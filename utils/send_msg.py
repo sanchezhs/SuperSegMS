@@ -1,10 +1,7 @@
 import requests
 import urllib.parse
-import os
-from dotenv import load_dotenv
 from loguru import logger
-
-load_dotenv()
+from config.env import get_env
 
 def send_whatsapp_message(message: str) -> None:
     """
@@ -17,14 +14,21 @@ def send_whatsapp_message(message: str) -> None:
         ValueError: If required environment variables are not set.
     """
     try:
-        phone_number = os.getenv("PHONE_NUMBER", None)
-        if not phone_number:
-            raise ValueError("PHONE_NUMBER environment variable is not set.")
+        env = get_env()
 
-        api_key = os.getenv("CMB_API_KEY", None)
-        if not api_key:
-            raise ValueError("CMB_API_KEY environment variable is not set.")
+        # Ensure environment variables are set
+        if not message:
+            raise ValueError("Message cannot be empty.")
 
+        # Fetch phone number and API key from environment variables
+        if not env.PHONE_NUMBER or not env.CMB_API_KEY:
+            logger.warning("Environment variables PHONE_NUMBER and CMB_API_KEY must be set to use the notification system.")
+            return
+
+        phone_number = env.PHONE_NUMBER
+        api_key = env.CMB_API_KEY
+
+        # Construct the API URL
         url = f"https://api.callmebot.com/whatsapp.php?phone={phone_number}&text={urllib.parse.quote(message)}&apikey={api_key}"
 
         response = requests.get(url)

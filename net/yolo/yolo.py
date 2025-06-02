@@ -187,7 +187,7 @@ class YOLO:
                 epochs=self.epochs,
                 batch=self.batch_size,
                 save=True,
-                imgsz=None,
+                imgsz=self._get_image_size(),
                 project=self.dst_path,
                 device="cuda",
                 verbose=True,
@@ -200,7 +200,7 @@ class YOLO:
             image_dir = os.path.join(self.src_path, "images", "test")
 
         if pred_dir is None:
-            pred_dir = os.path.join(self.dst_path, "predict")
+            pred_dir = os.path.join(self.dst_path)
 
         if os.path.exists(pred_dir):
             logger.info(f"Prediction folder already exists: {pred_dir}. Removing it.")
@@ -313,11 +313,11 @@ class YOLO:
             ]
         }
 
-        # with open(times_path, "r") as f:
-        #     inference_times = json.load(f)
+        with open(times_path, "r") as f:
+            inference_times = json.load(f)
 
-        # avg_inference_time = float(np.mean(inference_times))
-        # avg_metrics["inference_time"] = avg_inference_time
+        avg_inference_time = float(np.mean(inference_times))
+        avg_metrics["inference_time"] = avg_inference_time
 
         logger.info("Average metrics:")
         for k, v in avg_metrics.items():

@@ -146,10 +146,21 @@ def get_centered_lesion_block(
 
 
 def get_all_lesion_slices(
-    flair_data, mask_data, min_area_threshold=50
+    flair_data: np.ndarray,
+    mask_data: np.ndarray,
+    only_lesion_slices: bool = False
 ) -> tuple[list[np.ndarray], list[int]]:
     """
-    Devuelve todos los slices que contienen algún área de lesión significativa.
+    Devuelve todos los slices de un volumen o solo los que contienen lesión.
+
+    Parámetros:
+    - flair_data: array 3D del FLAIR (H x W x Z)
+    - mask_data: array 3D de la máscara binaria (H x W x Z)
+    - only_lesion_slices: si es True, devuelve solo los slices con alguna lesión
+
+    Retorna:
+    - Lista de slices FLAIR (arrays 2D)
+    - Lista de índices seleccionados
     """
     assert flair_data.shape == mask_data.shape, "Dimensiones no coinciden"
 
@@ -157,15 +168,11 @@ def get_all_lesion_slices(
     indices = []
 
     for i in range(mask_data.shape[2]):
-        area = np.sum(mask_data[:, :, i] > 0)
-        if area > min_area_threshold:
-            selected_slices.append(flair_data[:, :, i])
-            indices.append(i)
-
-    if not selected_slices:
-        mid = mask_data.shape[2] // 2
-        selected_slices = [flair_data[:, :, mid]]
-        indices = [mid]
+        has_lesion = np.any(mask_data[:, :, i] > 0)
+        if only_lesion_slices and not has_lesion:
+            continue
+        selected_slices.append(flair_data[:, :, i])
+        indices.append(i)
 
     return selected_slices, indices
 
@@ -231,7 +238,9 @@ def process_patient(
 
         # decide which slices to keep
         if strategy.lower() == Strategy.ALL_SLICES.value:
-            _, slice_idxs = get_all_lesion_slices(flair_img, mask_img, min_area_threshold=threshold)
+            _, slice_idxs = get_all_lesion_slices(flair_img, mask_img, only_lesion_slices=False)
+        elif strategy.lower() == Strategy.LESION.value:
+            _, slice_idxs = get_all_lesion_slices(flair_img, mask_img, only_lesion_slices=True)
         elif strategy.lower() == Strategy.TOP_FIVE.value:
             _, slice_idxs = get_centered_lesion_block(flair_img, mask_img, block_size=5)
         else:

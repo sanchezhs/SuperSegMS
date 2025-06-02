@@ -4,8 +4,7 @@ import tarfile
 from google.cloud import storage
 from loguru import logger
 from datetime import datetime
-
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "gcs_api.json"
+from config.env import get_env
 
 def upload_file_to_bucket(
     bucket_name: str,
@@ -20,6 +19,14 @@ def upload_file_to_bucket(
     If `compress` is True and the source is a directory, compress it before uploading.
     If `cleanup` is True, temporary files are deleted after upload.
     """
+    # Check for credentials
+    env = get_env()
+    if not env.CREDENTIALS_PATH:
+        logger.error("GCS credentials path is not set in the environment variables.")
+        return
+
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = env.CREDENTIALS_PATH
+
     logger.info(
         f"Uploading '{local_path}' to bucket '{bucket_name}' at '{destination_path}'"
     )

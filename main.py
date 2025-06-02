@@ -11,7 +11,10 @@ from schemas.pipeline_schemas import (
     TrainConfig,
     PredictConfig,
     EvaluateConfig,
+    # Constants
     ALL_STEPS,
+    DEFAULT_BUCKET,
+    DEFAULT_DEST_PATH,
 )
 
 from steps.preprocessing.preprocess import preprocess
@@ -19,8 +22,6 @@ from steps.training.train import train
 from steps.prediction.predict import predict
 from steps.evaluation.evaluate import evaluate
 
-DEFAULT_BUCKET = "example-bucket"
-DEFAULT_DEST_PATH = "results/archive.tar.gz"
 
 def parse_json_experiment(config_path: str, experiment_id: str, step: str) -> PipelineConfig:
     logger.info(f"Parsing JSON config from: `{config_path}` | Experiment ID: `{experiment_id}` | Step: `{step}`")
@@ -78,7 +79,6 @@ def expand_experiment_range(expr: str) -> list[str]:
             return [chr(i) for i in range(ord(start), ord(end) + 1)]
     return expr.split(",")
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Run one or more pipeline experiments with specified steps."
@@ -113,6 +113,14 @@ if __name__ == "__main__":
         "--bucket",
         default=DEFAULT_BUCKET,
         help=f"Name of the GCS bucket to upload to. Defaults to '{DEFAULT_BUCKET}'.",
+    )
+    parser.add_argument(
+        "--local_path",
+        default="results",
+        help=(
+            "Local path to the directory containing the results to upload. "
+            "Defaults to 'results', which is where the pipeline stores results."
+        ),
     )
     parser.add_argument(
         "--destination",
@@ -156,7 +164,7 @@ if __name__ == "__main__":
         if args.upload:
             upload_file_to_bucket(
                 bucket_name=args.bucket,
-                local_path="results",
+                local_path=args.local_path,
                 destination_path=args.destination,
             )
             logger.info(
