@@ -1,23 +1,24 @@
+import json
 import os
+from collections import namedtuple
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Optional
+
 import cv2
 import nibabel as nib
 import numpy as np
-import json
-from collections import namedtuple
-from sklearn.model_selection import train_test_split
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from tqdm import tqdm
-from typing import Optional
-
-from schemas.pipeline_schemas import (
-    PreprocessConfig,
-    Net,
-    ResizeMethod,
-    SuperScale,
-    Strategy,
-)
-from net.FSRCNN.fsrcnn import apply_fsrcnn
 from loguru import logger
+from sklearn.model_selection import train_test_split
+from tqdm import tqdm
+
+from net.FSRCNN.fsrcnn import FSRCNN, FSRCNN_PATH
+from schemas.pipeline_schemas import (
+    Net,
+    PreprocessConfig,
+    ResizeMethod,
+    Strategy,
+    SuperScale,
+)
 
 SplitDirs = namedtuple(
     "SplitDirs",
@@ -192,12 +193,12 @@ def save_image(
         ResizeMethod.CUBIC: cv2.INTER_CUBIC,
     }.get(resize_method, cv2.INTER_CUBIC)
 
+    img = cv2.resize(img, resize, interpolation=interpolation)
+    
     if super_scale != SuperScale.NONE:
-        img = cv2.resize(img, resize, interpolation=interpolation)
-        img = apply_fsrcnn(img, super_scale)
+        fsrcnn_model = FSRCNN(super_scale, FSRCNN_PATH[super_scale])
+        img = fsrcnn_model.apply(img)
     else:
-        img = cv2.resize(img, resize, interpolation=interpolation)
-
         if is_flair:
             img = (img - img.min()) / (img.max() - img.min() + 1e-8) * 255
             img = np.clip(img, 0, 255).astype(np.uint8)

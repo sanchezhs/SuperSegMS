@@ -41,7 +41,7 @@ class MRIDataset(Dataset):
     def __len__(self) -> int:
         return len(self.images)
 
-    def __getitem__(self, idx: int):
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor | None, str]:
         img_path = os.path.join(self.img_dir, self.images[idx])
         img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255.0
         img = torch.tensor(img).unsqueeze(0)
@@ -61,7 +61,7 @@ class BCEDiceLoss(nn.Module):
         super().__init__()
         self.bce = nn.BCEWithLogitsLoss()
 
-    def forward(self, inputs, targets):
+    def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         bce_loss = self.bce(inputs, targets)
         probs = torch.sigmoid(inputs)
         smooth = 1e-5
@@ -250,8 +250,8 @@ class UNet:
                     f"Metrics: {metrics}"
                 )
 
-            summary = self.compute_mean_std_metrics(all_metrics)
-            self.write_summary(summary)
+            summary = self._compute_mean_std_metrics(all_metrics)
+            self._write_summary(summary)
             send_whatsapp_message(
                 f"U-Net Cross-validation completed. Summary: {summary}"
             )
@@ -282,7 +282,7 @@ class UNet:
         self._plot_loss_curve()
 
     @classmethod
-    def from_kfold(cls, config: TrainConfig, fold: int, train_loader, val_loader):
+    def from_kfold(cls, config: TrainConfig, fold: int, train_loader, val_loader) -> "UNet":
         instance = cls.__new__(cls)
         instance.mode = "train"
         instance.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -316,43 +316,43 @@ class UNet:
         instance.pred_path = instance.dst_path
         return instance
 
-    def train2(self) -> None:
-        logger.info(f"Training model {self.model_name}")
+    # def train2(self) -> None:
+    #     logger.info(f"Training model {self.model_name}")
 
-        best_val_loss = float("inf")
+    #     best_val_loss = float("inf")
 
-        for epoch in range(self.epochs):
-            self.model.train()
-            epoch_loss = 0
+    #     for epoch in range(self.epochs):
+    #         self.model.train()
+    #         epoch_loss = 0
 
-            for images, masks, _ in tqdm(
-                self.train_loader, desc=f"Epoch {epoch + 1}/{self.epochs}"
-            ):
-                images, masks = images.to(self.device), masks.to(self.device)
-                self.optimizer.zero_grad()
-                outputs = self.model(images)
-                loss = self.criterion(outputs, masks)
-                loss.backward()
-                self.optimizer.step()
-                epoch_loss += loss.item()
+    #         for images, masks, _ in tqdm(
+    #             self.train_loader, desc=f"Epoch {epoch + 1}/{self.epochs}"
+    #         ):
+    #             images, masks = images.to(self.device), masks.to(self.device)
+    #             self.optimizer.zero_grad()
+    #             outputs = self.model(images)
+    #             loss = self.criterion(outputs, masks)
+    #             loss.backward()
+    #             self.optimizer.step()
+    #             epoch_loss += loss.item()
 
-            val_loss = self.validate()
-            self.scheduler.step(val_loss)
+    #         val_loss = self.validate()
+    #         self.scheduler.step(val_loss)
 
-            avg_train_loss = epoch_loss / len(self.train_loader)
-            self.train_losses.append(avg_train_loss)
-            self.val_losses.append(val_loss)
+    #         avg_train_loss = epoch_loss / len(self.train_loader)
+    #         self.train_losses.append(avg_train_loss)
+    #         self.val_losses.append(val_loss)
 
-            logger.info(
-                f"Epoch [{epoch + 1}/{self.epochs}], Loss: {epoch_loss / len(self.train_loader):.4f}, Val Loss: {val_loss:.4f}"
-            )
+    #         logger.info(
+    #             f"Epoch [{epoch + 1}/{self.epochs}], Loss: {epoch_loss / len(self.train_loader):.4f}, Val Loss: {val_loss:.4f}"
+    #         )
 
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                torch.save(self.model.state_dict(), self.model_path)
-                logger.info(f"New best model saved in {self.model_path}")
+    #         if val_loss < best_val_loss:
+    #             best_val_loss = val_loss
+    #             torch.save(self.model.state_dict(), self.model_path)
+    #             logger.info(f"New best model saved in {self.model_path}")
         
-        self._plot_loss_curve()
+    #     self._plot_loss_curve()
 
 
     def validate(self) -> float:
@@ -434,7 +434,7 @@ class UNet:
         self.model.eval()
 
     def _compute_all_metrics(
-        self, pred, mask
+        self, pred: np.ndarray, mask: np.ndarray
     ) -> tuple[float, float, float, float, float, float]:
         pred_bin = (pred > 0.5).astype(np.uint8)
         mask_bin = (mask > 0.5).astype(np.uint8)
@@ -489,7 +489,7 @@ class UNet:
         elapsed = time.perf_counter() - start
         return pred, elapsed
 
-    def compute_mean_std_metrics(self, metrics_list):
+    def _compute_mean_std_metrics(self, metrics_list: list[dict]) -> dict:
         keys = metrics_list[0].keys()
         return {
             key: {
@@ -498,7 +498,7 @@ class UNet:
             } for key in keys
         }
 
-    def write_summary(self, metrics_dict):
+    def _write_summary(self, metrics_dict: dict) -> None:
         summary_path = os.path.join(self.dst_path, "cv_summary.json")
         with open(summary_path, "w") as f:
             json.dump(metrics_dict, f, indent=4)
