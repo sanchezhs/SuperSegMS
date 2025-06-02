@@ -9,12 +9,11 @@
                 "resize": [320, 320],
                 "split": 0.7,
                 "strategy": "all_slices",
-                "threshold": 0,
                 "super_scale": 1
             },
             "train": {
                 "net": "unet",
-                "src_path": "datasets/unet_all",
+                "src_path": "datasets/unet_all_kfolds",
                 "dst_path": "results/unet/unet_all_kfolds",
                 "batch_size": 16,
                 "use_kfold": true,
@@ -40,17 +39,16 @@
             "preprocess": {
                 "net": "yolo",
                 "src_path": "datasets/MSLesSeg-Dataset",
-                "dst_path": "datasets/yolo_all",
+                "dst_path": "datasets/yolo_all_kfolds",
                 "resize": [320, 320],
                 "split": 0.7,
                 "strategy": "all_slices",
-                "threshold": 0,
                 "super_scale": 1
             },
             "train": {
                 "net": "yolo",
-                "src_path": "datasets/yolo_all",
-                "dst_path": "results/yolo/yolo_all_kfold",
+                "src_path": "datasets/yolo_all_kfolds",
+                "dst_path": "results/yolo/yolo_all_kfolds",
                 "use_kfold": true,
                 "batch_size": 16,
                 "epochs": 25,
@@ -75,17 +73,16 @@
             "preprocess": {
                 "net": "unet",
                 "src_path": "datasets/MSLesSeg-Dataset",
-                "dst_path": "datasets/unet_all_100",
+                "dst_path": "datasets/unet_lesion_kfolds",
                 "resize": [320, 320],
                 "split": 0.7,
-                "strategy": "all_slices",
-                "threshold": 100,
+                "strategy": "lesion_slices",
                 "super_scale": 1
             },
             "train": {
                 "net": "unet",
-                "src_path": "datasets/unet_all_100",
-                "dst_path": "results/unet/unet_all_100_kfolds",
+                "src_path": "datasets/unet_lesion_kfolds",
+                "dst_path": "results/unet/unet_lesion_kfolds",
                 "batch_size": 16,
                 "use_kfold": true,
                 "epochs": 25,
@@ -110,17 +107,16 @@
             "preprocess": {
                 "net": "unet",
                 "src_path": "datasets/MSLesSeg-Dataset",
-                "dst_path": "datasets/unet_all_100_x2",
+                "dst_path": "datasets/unet_lesion_x2_kfolds",
                 "resize": [320, 320],
                 "split": 0.7,
-                "strategy": "all_slices",
-                "threshold": 100,
+                "strategy": "lesion_slices",
                 "super_scale": 2
             },
             "train": {
                 "net": "unet",
-                "src_path": "datasets/unet_all_100_x2",
-                "dst_path": "results/unet/unet_all_100_x2_kfolds",
+                "src_path": "datasets/unet_lesion_x2_kfolds",
+                "dst_path": "results/unet/unet_lesion_x2_kfolds",
                 "use_kfold": true,
                 "batch_size": 16,
                 "epochs": 25,
@@ -145,17 +141,16 @@
             "preprocess": {
                 "net": "yolo",
                 "src_path": "datasets/MSLesSeg-Dataset",
-                "dst_path": "datasets/yolo_all_100",
+                "dst_path": "datasets/yolo_lesion_kfolds",
                 "resize": [320, 320],
                 "split": 0.7,
-                "strategy": "all_slices",
-                "threshold": 100,
+                "strategy": "lesion_slices",
                 "super_scale": 1
             },
             "train": {
                 "net": "yolo",
-                "src_path": "datasets/yolo_all_100",
-                "dst_path": "results/yolo/yolo_all_100_kfolds",
+                "src_path": "datasets/yolo_lesion_kfolds",
+                "dst_path": "results/yolo/yolo_lesion_kfolds",
                 "use_kfold": true,
                 "batch_size": 16,
                 "epochs": 25,
@@ -180,17 +175,16 @@
             "preprocess": {
                 "net": "yolo",
                 "src_path": "datasets/MSLesSeg-Dataset",
-                "dst_path": "datasets/yolo_all_100_x2",
+                "dst_path": "datasets/yolo_lesion_x2_kfolds",
                 "resize": [320, 320],
                 "split": 0.7,
                 "super_scale": 2,
-                "threshold": 100,
-                "strategy": "all_slices"
+                "strategy": "lesion_slices"
             },
             "train": {
                 "net": "yolo",
-                "src_path": "datasets/yolo_all_100_x2",
-                "dst_path": "results/yolo/yolo_all_100_x2_kfolds",
+                "src_path": "datasets/yolo_lesion_x2_kfolds",
+                "dst_path": "results/yolo/yolo_lesion_x2_kfolds",
                 "use_kfold": true,
                 "batch_size": 16,
                 "epochs": 25,
