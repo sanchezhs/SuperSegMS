@@ -18,12 +18,22 @@ def upload_file_to_bucket(
     Upload a single file or directory to a GCS bucket.
     If `compress` is True and the source is a directory, compress it before uploading.
     If `cleanup` is True, temporary files are deleted after upload.
+    Args:
+        bucket_name (str): Name of the GCS bucket to upload to.
+        local_path (str): Local path to the file or directory to upload.
+        destination_path (str): Destination path in the GCS bucket.
+        timestamp (bool): If True, prepend a timestamp to the destination filename.
+        compress (bool): If True and local_path is a directory, compress it before uploading.
+        cleanup (bool): If True, remove temporary files after upload.
+    Raises:
+        ValueError: If the GCS credentials path is not set in the environment variables.
+        Exception: If the upload fails for any reason.
     """
     # Check for credentials
     env = get_env()
     if not env.CREDENTIALS_PATH:
         logger.error("GCS credentials path is not set in the environment variables.")
-        return
+        raise ValueError("GCS credentials path is not set.")
 
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = env.CREDENTIALS_PATH
 

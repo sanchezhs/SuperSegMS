@@ -19,6 +19,7 @@ def write_predict_params(config: PredictConfig) -> None:
 
 
 def predict(config: PredictConfig) -> None:
+    """Make predictions using a trained model based on the provided configuration."""
     match config.net:
         case Net.UNET:
             UNet(config, mode="predict").predict()

@@ -19,6 +19,7 @@ def write_evaluate_params(config: EvaluateConfig) -> None:
 
 
 def evaluate(config: EvaluateConfig) -> None:
+    """Evaluate a trained model based on the provided configuration."""
     match config.net:
         case Net.UNET:
             UNet(config, mode="evaluate").evaluate()

@@ -14,11 +14,13 @@ DEFAULT_DEST_PATH = "results/archive.tar.gz"
 
 
 class Net(str, Enum):
+    """Available neural network architectures."""
     UNET = "unet"
     YOLO = "yolo"
 
 
 class SuperScale(IntEnum):
+    """Super-resolution scaling factors."""
     NONE = 1
     TWO = 2
     THREE = 3
@@ -26,18 +28,21 @@ class SuperScale(IntEnum):
 
 
 class ResizeMethod(str, Enum):
+    """Methods for resizing images."""
     NEAREST = "nearest"
     LINEAR = "linear"
     CUBIC = "cubic"
 
 
 class Strategy(str, Enum):
+    """Strategy for handling slices in the dataset."""
     ALL_SLICES = "all_slices"
     LESION = "lesion_slices"
     TOP_FIVE = "top_five"
 
 
 class EnvConfig(BaseModel):
+    """Environment configuration for the pipeline."""
     PHONE_NUMBER: Optional[str] = Field(
         None, description="WhatsApp phone number for notifications"
     )
@@ -50,6 +55,7 @@ class EnvConfig(BaseModel):
 
 
 class PreprocessConfig(BaseModel):
+    """Configuration for preprocessing data."""
     net: Net
     src_path: str
     dst_path: str
@@ -62,6 +68,7 @@ class PreprocessConfig(BaseModel):
 
 
 class TrainConfig(BaseModel):
+    """Configuration for training a model."""
     net: Net
     dst_path: str
     src_path: str
@@ -75,6 +82,7 @@ class TrainConfig(BaseModel):
 
 
 class EvaluateConfig(BaseModel):
+    """Configuration for evaluating a trained model."""
     net: Net
     model_path: str
     src_path: str
@@ -83,6 +91,7 @@ class EvaluateConfig(BaseModel):
 
 
 class PredictConfig(BaseModel):
+    """Configuration for making predictions."""
     net: Net
     model_path: str
     src_path: str
@@ -90,6 +99,7 @@ class PredictConfig(BaseModel):
 
 
 class PipelineConfig(BaseModel):
+    """Configuration for the entire pipeline."""
     step: str
     preprocess_config: Optional[PreprocessConfig] = None
     train_config: Optional[TrainConfig] = None
@@ -120,6 +130,7 @@ class PipelineConfig(BaseModel):
 
 
 class SegmentationMetrics(BaseModel):
+    """Metrics for evaluating segmentation performance."""
     iou: float
     dice_score: float
     precision: float

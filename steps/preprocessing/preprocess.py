@@ -35,15 +35,16 @@ SplitDirs = namedtuple(
 def create_dirs(dst_path: str) -> SplitDirs:
     """
     Create directories for images and labels for train, val, and test sets.
-
-    :param dst_path: The base directory where the images and labels will be stored.
-    :return: A tuple containing the paths to the created directories:
-        - images_train_dir
-        - images_val_dir
-        - images_test_dir
-        - labels_train_dir
-        - labels_val_dir
-        - labels_test_dir
+    Args: 
+        dst_path: The base directory where the images and labels will be stored.
+    Returns: 
+        A tuple containing the paths to the created directories:
+            images_train_dir
+            images_val_dir
+            images_test_dir
+            labels_train_dir
+            labels_val_dir
+            labels_test_dir
     """
     images_train_dir = os.path.join(dst_path, "images", "train")
     images_val_dir = os.path.join(dst_path, "images", "val")
@@ -82,7 +83,19 @@ def split_patients_triple(
     patients: list[str], train_frac: float = 0.8, random_state: int = 42
 ) -> tuple[set[str], set[str], set[str]]:
     """
-    Returns 3 sets (train, val, test) without overlap, with val and test being equal.
+    Splits a list of patient IDs into three sets: train, validation, and test.
+    The split is done in two steps:
+    1. First, the patients are split into train and temporary sets based on the specified fraction.
+    2. Then, the temporary set is split into validation and test sets, each receiving half of the temporary patients.
+    Args:
+        patients: List of patient IDs (strings).
+        train_frac: Fraction of patients to include in the training set (default is 0.8).
+        random_state: Random seed for reproducibility (default is 42).
+    Returns:
+        A tuple containing three sets:
+        - train_pat: Set of patient IDs for the training set.
+        - val_pat: Set of patient IDs for the validation set.
+        - test_pat: Set of patient IDs for the test set.
     """
     # 1) train vs tmp
     train_pat, tmp_pat = train_test_split(
@@ -102,17 +115,17 @@ def get_centered_lesion_block(
     flair_data, mask_data, block_size=5, min_area_threshold=0
 ) -> tuple[list[np.ndarray], list[int]]:
     """
-    Devuelve un bloque de slices centrado en el slice con más lesión.
+    Returns a block of slices centered on the slice with the largest lesion.
 
-    Parámetros:
-    - flair_data: array 3D del FLAIR (H x W x Z)
-    - mask_data: array 3D de la máscara binaria (H x W x Z)
-    - block_size: número impar de slices a incluir (ej. 3, 5, 7)
-    - min_area_threshold: umbral mínimo de píxeles de lesión
+    Args:
+        flair_data: 3D FLAIR array (H x W x Z)
+        mask_data: 3D binary mask array (H x W x Z)
+        block_size: odd number of slices to include (e.g., 3, 5, 7)
+        min_area_threshold: minimum lesion pixel threshold
 
-    Retorna:
-    - bloque de slices FLAIR (lista de arrays 2D)
-    - índices seleccionados
+    Returns:
+        block of FLAIR slices (list of 2D arrays)
+        selected indices
     """
     assert block_size % 2 == 1, "block_size debe ser impar"
     assert flair_data.shape == mask_data.shape, "Dimensiones no coinciden"
@@ -152,16 +165,16 @@ def get_all_lesion_slices(
     only_lesion_slices: bool = False
 ) -> tuple[list[np.ndarray], list[int]]:
     """
-    Devuelve todos los slices de un volumen o solo los que contienen lesión.
+    Returns all slices of a volume or only those containing lesions.
 
-    Parámetros:
-    - flair_data: array 3D del FLAIR (H x W x Z)
-    - mask_data: array 3D de la máscara binaria (H x W x Z)
-    - only_lesion_slices: si es True, devuelve solo los slices con alguna lesión
+    Args:
+        flair_data: 3D FLAIR array (H x W x Z)
+        mask_data: 3D binary mask array (H x W x Z)
+        only_lesion_slices: if True, returns only slices with any lesion
 
-    Retorna:
-    - Lista de slices FLAIR (arrays 2D)
-    - Lista de índices seleccionados
+    Returns:
+        List of FLAIR slices (2D arrays)
+        List of selected indices
     """
     assert flair_data.shape == mask_data.shape, "Dimensiones no coinciden"
 
@@ -186,7 +199,16 @@ def save_image(
     is_flair: Optional[bool] = False,
     resize_method: Optional[ResizeMethod] = None,
 ) -> None:
-    
+    """
+    Save a single image slice to disk after resizing and applying super-resolution if needed.
+    Args:
+        img: 2D numpy array representing the image slice.
+        img_path: Path where the image will be saved.
+        super_scale: Super-resolution scaling factor.
+        resize: Tuple (width, height) for resizing the image.
+        is_flair: If True, indicates this is a FLAIR image (for normalization).
+        resize_method: Method to use for resizing (if None, defaults to cubic).
+    """
     interpolation = {
         ResizeMethod.NEAREST: cv2.INTER_NEAREST,
         ResizeMethod.LINEAR: cv2.INTER_LINEAR,
@@ -220,6 +242,16 @@ def process_patient(
 ) -> None:
     """
     Load one patient's timepoints, pick best slices, and save both FLAIR and mask PNGs.
+    Args:
+        patient: Patient ID (string).
+        base_path_train: Base path to the training data.
+        images_dir: Directory to save FLAIR images.
+        labels_dir: Directory to save mask images.
+        strategy: Strategy for selecting slices (e.g., all, lesion, top five).
+        threshold: Minimum lesion area threshold for slice selection.
+        resize: Tuple (width, height) for resizing images.
+        super_scale: Super-resolution scaling factor.
+        resize_method: Method to use for resizing (if None, defaults to cubic).
     """
     patient_path = os.path.join(base_path_train, patient)
     if not os.path.isdir(patient_path):
@@ -286,6 +318,18 @@ def _batch_process_split(
 ) -> None:
     """
     Submit one thread per patient in this split.
+    Args:
+        name: Name of the split (e.g., "train", "val", "test").
+        patients: Set of patient IDs to process.
+        base_path_train: Base path to the training data.
+        images_dir: Directory to save FLAIR images.
+        labels_dir: Directory to save mask images.
+        strategy: Strategy for selecting slices (e.g., all, lesion, top five).
+        threshold: Minimum lesion area threshold for slice selection.
+        resize: Tuple (width, height) for resizing images.
+        super_scale: Super-resolution scaling factor.
+        resize_method: Method to use for resizing (if None, defaults to cubic).
+        max_workers: Maximum number of threads to use (default is number of CPU cores).
     """
     logger.info(f"Starting batch for split='{name}' with {len(patients)} patients.")
     with ThreadPoolExecutor(max_workers=max_workers) as exe:
@@ -321,6 +365,18 @@ def unet_process_imgs(
     threshold: int,
     resize_method: Optional[ResizeMethod],
 ) -> None:
+    """
+    Process images for UNet model training.
+    Args:
+        src_path: Source path containing the training data.
+        dst_path: Destination path to save processed images and labels.
+        super_scale: Super-resolution scaling factor.
+        split: Fraction of patients to use for training (default is 0.8).
+        resize: Tuple (width, height) for resizing images.
+        strategy: Strategy for selecting slices (e.g., all, lesion, top five).
+        threshold: Minimum lesion area threshold for slice selection.
+        resize_method: Method to use for resizing (if None, defaults to cubic).
+    """
     base = os.path.join(src_path, "train")
     dirs = create_dirs(dst_path)
 
@@ -362,6 +418,17 @@ def yolo_process_imgs(
     strategy: Strategy,
     threshold: int,
 ) -> None:
+    """
+    Process images for YOLO model training.
+    Args:
+        src_path: Source path containing the training data.
+        dst_path: Destination path to save processed images and labels.
+        super_scale: Super-resolution scaling factor.
+        split: Fraction of patients to use for training (default is 0.8).
+        resize: Tuple (width, height) for resizing images.
+        strategy: Strategy for selecting slices (e.g., all, lesion, top five).
+        threshold: Minimum lesion area threshold for slice selection.
+    """
     base = os.path.join(src_path, "train")
     dirs = create_dirs(dst_path)
 
@@ -396,11 +463,11 @@ def yolo_process_imgs(
 
         convert_masks_to_yolo_seg_format(masks_dir=lbl_dir, output_dir=lbl_dir, class_id=0)
 
-def convert_masks_to_yolo_seg_format(masks_dir: str, output_dir: str, class_id: int = 0):
+def convert_masks_to_yolo_seg_format(masks_dir: str, output_dir: str, class_id: int = 0) -> None:
     """
     Converts all binary mask images in a directory to YOLO segmentation label format.
 
-    Parameters:
+    Args:
     - masks_dir: directory containing binary mask PNG images
     - output_dir: directory to write YOLO segmentation .txt label files
     - class_id: class ID to assign to all masks (default 0)
@@ -443,7 +510,19 @@ def process_single_patient(
     threshold: int,
     resize: tuple[int, int],
     super_scale: SuperScale,
-):
+) -> None:
+    """
+    Process a single patient's timepoints, pick best slices, and save both FLAIR and mask PNGs.
+    Args:
+        patient: Patient ID (string).
+        base_path_train: Base path to the training data.
+        images_dir: Directory to save FLAIR images.
+        labels_dir: Directory to save mask images.
+        strategy: Strategy for selecting slices (e.g., all, lesion, top five).
+        threshold: Minimum lesion area threshold for slice selection.
+        resize: Tuple (width, height) for resizing images.
+        super_scale: Super-resolution scaling factor.
+    """
     patient_path = os.path.join(base_path_train, patient)
     for timepoint in os.listdir(patient_path):
         flair_path = os.path.join(patient_path, timepoint, f"{patient}_{timepoint}_FLAIR.nii.gz")
@@ -493,12 +572,18 @@ def process_single_patient(
             )
 
 def write_preprocess_params(config: PreprocessConfig) -> None:
+    """Write preprocessing parameters to a JSON file."""
     with open(os.path.join(config.dst_path, "preprocess_params.json"), "w") as f:
         json.dump(config.model_dump(), f, indent=4)
 
     logger.info("Preprocess parameters saved to preprocess_params.json")
 
 def preprocess(config: PreprocessConfig) -> None:
+    """
+    Preprocess images based on the provided configuration.
+    Args:
+        config: PreprocessConfig object containing all necessary parameters.
+    """
     net = config.net
     resize = config.resize
     resize_method = config.resize_method

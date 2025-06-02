@@ -105,6 +105,8 @@ def handle_generate_config(output_path: str | None):
     """
     Generate a default JSON configuration file with a single experiment template.
     If output_path is None or "stdout", print to stdout; otherwise write to the specified file.
+    Args:
+        output_path (str | None): Path to write the default config. If None or "stdout", print to stdout.
     """
     default = {
         "experiments": [
@@ -123,6 +125,8 @@ def make_default_experiment_template() -> dict:
     """
     Return a single-experiment template with placeholders for each step.
     Users can copy/paste, fill in real values, and repeat under "experiments".
+    Returns:
+        dict: A dictionary representing a single experiment template.
     """
     return {
         "id": "<experiment_id>",
@@ -160,10 +164,13 @@ def make_default_experiment_template() -> dict:
     }
 
 
-def output_default_config(to_stdout: bool, filename: str | None):
+def output_default_config(to_stdout: bool, filename: str | None) -> None:
     """
     Build a default JSON structure with one template experiment. 
     If to_stdout is True, print to stdout; otherwise write to 'filename'.
+    Args:
+        to_stdout (bool): If True, print the default config to stdout.
+        filename (str | None): If provided, write the default config to this file.
     """
     default = {
         "experiments": [

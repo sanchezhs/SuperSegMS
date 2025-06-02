@@ -77,6 +77,12 @@ class BCEDiceLoss(nn.Module):
 
 
 class UNet:
+    """
+    U-Net model for MRI segmentation tasks.
+    This class handles training, evaluation, and prediction using a U-Net architecture.
+    It supports training with k-fold cross-validation, evaluation on validation datasets,
+    and prediction on test datasets.
+    """
     def __init__(
         self,
         config: TrainConfig | EvaluateConfig | PredictConfig,
@@ -201,6 +207,11 @@ class UNet:
             )
 
     def train(self) -> None:
+        """
+        Train the U-Net model using the specified training configuration.
+        If k-fold cross-validation is enabled, it will perform k-fold training.
+        Otherwise, it will train on the provided training and validation datasets.
+        """
         logger.info(f"Training model {self.model_name}")
 
         if getattr(self, 'use_kfold', False):
@@ -283,6 +294,16 @@ class UNet:
 
     @classmethod
     def from_kfold(cls, config: TrainConfig, fold: int, train_loader, val_loader) -> "UNet":
+        """
+        Create a U-Net instance for k-fold training.
+        Args:
+            config (TrainConfig): Configuration for training.
+            fold (int): Current fold number.
+            train_loader (DataLoader): DataLoader for training data.
+            val_loader (DataLoader): DataLoader for validation data.
+        Returns:
+            UNet: An instance of the U-Net model configured for k-fold training.
+        """
         instance = cls.__new__(cls)
         instance.mode = "train"
         instance.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -356,6 +377,11 @@ class UNet:
 
 
     def validate(self) -> float:
+        """
+        Validate the model on the validation dataset and return the average loss.
+        Returns:
+            float: Average validation loss.
+        """
         self.model.eval()
         val_loss = 0
         with torch.no_grad():
@@ -367,6 +393,12 @@ class UNet:
         return val_loss / len(self.val_loader)
 
     def evaluate(self) -> None:
+        """
+        Evaluate the model on the validation dataset and compute various segmentation metrics.
+        This method loads the model weights, performs inference on the validation dataset,
+        and computes metrics such as IoU, Dice score, precision, recall, F1 score, and specificity.
+        The results are saved in the specified prediction path in JSON format.
+        """
         logger.info(f"Evaluating model {self.model_path}")
 
         self.model.load_state_dict(
@@ -408,6 +440,11 @@ class UNet:
         return avg_metrics
 
     def predict(self) -> None:
+        """
+        Predict segmentation masks for images in the test dataset and save the results.
+        This method loads the model weights, performs inference on the test dataset,
+        and saves the predicted masks as images in the specified destination path.
+        """
         logger.info(f"Predicting images in {self.src_path} and saving to {self.dst_path}")
         self.model.load_state_dict(
             torch.load(self.model_path, map_location=self.device)
@@ -436,6 +473,14 @@ class UNet:
     def _compute_all_metrics(
         self, pred: np.ndarray, mask: np.ndarray
     ) -> tuple[float, float, float, float, float, float]:
+        """
+        Compute segmentation metrics: IoU, Dice score, precision, recall, F1 score, and specificity.
+        Args:
+            pred (np.ndarray): Predicted mask.
+            mask (np.ndarray): Ground truth mask.
+        Returns:
+            tuple: A tuple containing IoU, Dice score, precision, recall, F1 score, and specificity.
+        """
         pred_bin = (pred > 0.5).astype(np.uint8)
         mask_bin = (mask > 0.5).astype(np.uint8)
 
@@ -458,6 +503,12 @@ class UNet:
         return iou, dice, precision, recall, f1_score, specificity
 
     def _write_metrics(self, metrics: SegmentationMetrics, format: str = "json") -> None:
+        """
+        Write segmentation metrics to a file in the specified format (JSON or CSV).
+        Args:
+            metrics (SegmentationMetrics): The metrics to write.
+            format (str): The format to save the metrics in ("json" or "csv").
+        """
         if format == "csv":
             with open(os.path.join(self.pred_path, "metrics.csv"), "w") as f:
                 f.write("Metric,Value\n")
@@ -470,6 +521,11 @@ class UNet:
         logger.info(f"Metrics saved in {self.pred_path}/metrics.{format}")
 
     def _plot_loss_curve(self) -> None:
+        """
+        Plot and save the training and validation loss curves.
+        This method generates a plot showing the loss over epochs for both training and validation datasets.
+        The plot is saved in the destination path with a filename based on the model name.
+        """
         title = self.model_name if self.mode == "train" else "Loss Curve"
         plt.figure(figsize=(10, 5))
         plt.plot(self.train_losses, label='Training Loss')
@@ -483,6 +539,13 @@ class UNet:
         logger.info(f"Loss curve saved at {self.dst_path}/loss_curve.png")
 
     def _infer_and_time(self, image: torch.Tensor) -> tuple[np.ndarray, float]:
+        """
+        Perform inference on a single image and measure the time taken.
+        Args:
+            image (torch.Tensor): Input image tensor.
+        Returns:
+            tuple: A tuple containing the predicted mask and the time taken for inference.
+        """
         start = time.perf_counter()
         with torch.no_grad():
             pred = torch.sigmoid(self.model(image)).cpu().numpy().squeeze()
@@ -490,6 +553,13 @@ class UNet:
         return pred, elapsed
 
     def _compute_mean_std_metrics(self, metrics_list: list[dict]) -> dict:
+        """
+        Compute mean and standard deviation for each metric across all folds.
+        Args:
+            metrics_list (list[dict]): List of dictionaries containing metrics from each fold.
+        Returns:
+            dict: A dictionary with mean and std for each metric.
+        """
         keys = metrics_list[0].keys()
         return {
             key: {
@@ -499,6 +569,11 @@ class UNet:
         }
 
     def _write_summary(self, metrics_dict: dict) -> None:
+        """
+        Write a summary of cross-validation metrics to a JSON file.
+        Args:
+            metrics_dict (dict): Dictionary containing mean and std for each metric.
+        """
         summary_path = os.path.join(self.dst_path, "cv_summary.json")
         with open(summary_path, "w") as f:
             json.dump(metrics_dict, f, indent=4)

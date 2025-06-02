@@ -20,6 +20,7 @@ def write_train_params(config: TrainConfig) -> None:
 
 
 def train(config: TrainConfig) -> None:
+    """Train a model based on the provided configuration."""
     match config.net:
         case Net.UNET:
             UNet(config, mode="train").train()

@@ -12,6 +12,19 @@ from steps.training.train import train
 from utils.gcs import upload_file_to_bucket
 
 def parse_json_experiment(config_path: str, experiment_id: str, step: str) -> PipelineConfig:
+    """
+    Parse a JSON configuration file and return the configuration for a specific experiment and step.
+    Args:
+        config_path (str): Path to the JSON configuration file.
+        experiment_id (str): ID of the experiment to run.
+        step (str): Step to run (e.g., "preprocess", "train", "predict", "evaluate").
+    Returns:
+        PipelineConfig: The configuration for the specified experiment and step.
+    Raises:
+        FileNotFoundError: If the config file does not exist.
+        ValueError: If the experiment ID or step is not found in the config.
+        ValidationError: If the configuration data is invalid.
+    """
     logger.info(f"Parsing JSON config from: `{config_path}` | Experiment ID: `{experiment_id}` | Step: `{step}`")
 
     if not os.path.isfile(config_path):
@@ -42,7 +55,12 @@ def parse_json_experiment(config_path: str, experiment_id: str, step: str) -> Pi
         raise
 
 
-def run_step(config: PipelineConfig):
+def run_step(config: PipelineConfig) -> None:
+    """
+    Run a specific step of the pipeline based on the provided configuration.
+    Args:
+        config (PipelineConfig): The configuration for the step to run.
+    """
     logger.info(f"Running step: {config.step}")
     logger.info(config.active_config().model_dump())
 
@@ -62,6 +80,10 @@ def expand_experiment_range(expr: str) -> list[str]:
     """
     If expr is a single-letter range like "A-C", expand it to ["A", "B", "C"].
     Otherwise, split on commas and return the list.
+    Args:
+        expr (str): The expression to expand, e.g. "A-C" or "A,B,C".
+    Returns:
+        list[str]: Expanded list of experiment IDs.
     """
     if "-" in expr and len(expr.split('-')) == 2:
         start, end = expr.split("-")

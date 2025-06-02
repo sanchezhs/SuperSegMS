@@ -16,6 +16,21 @@ from utils.send_msg import send_whatsapp_message
 
 
 class YOLO:
+    """Class to handle YOLO training, prediction, and evaluation.
+    This class supports both standard training and k-fold cross-validation.
+    It can also predict on new images and evaluate the predictions against ground truth masks.
+    Attributes:
+        config (TrainConfig | PredictConfig | EvaluateConfig): Configuration object for the step.
+        src_path (str): Source path for images and labels.
+        dst_path (str): Destination path for training results.
+        batch_size (int): Batch size for training.
+        epochs (int): Number of epochs for training.
+        use_kfold (bool): Whether to use k-fold cross-validation.
+        kfold_n_splits (int): Number of splits for k-fold cross-validation.
+        kfold_seed (int): Random seed for k-fold cross-validation.
+        yaml_path (str): Path to the data.yaml file used by YOLO.
+        model_path (str): Path to the YOLO model weights.
+    """
     def __init__(self, config: TrainConfig | PredictConfig | EvaluateConfig) -> None:
         self.config = config
         self.src_path = config.src_path
@@ -56,6 +71,10 @@ class YOLO:
             )
 
     def train(self) -> None:
+        """Train the YOLO model using the provided configuration.
+        If `use_kfold` is set to True, performs k-fold cross-validation.
+        If `use_kfold` is False, performs a standard single-run training.
+        """
         if getattr(self, "use_kfold", False):
             fold_metrics = []
             image_mask_group_quads = []
@@ -194,6 +213,11 @@ class YOLO:
             )
 
     def predict(self, image_dir: Optional[str] = None, pred_dir: Optional[str] = None):
+        """Run inference on images using the trained YOLO model.
+        Args:
+            image_dir (str, optional): Directory containing images to predict. Defaults to None.
+            pred_dir (str, optional): Directory to save predictions. Defaults to None.
+        """
         model = uYOLO(self.model_path)
 
         if image_dir is None:
@@ -333,6 +357,10 @@ class YOLO:
         return avg_metrics
 
     def _create_yaml(self) -> None:
+        """Create a data.yaml file for YOLO training or prediction.
+        This file contains paths to training and validation images, number of classes,
+        class names, and task type.
+        """
         data_yaml = {
             "path": os.path.abspath(self.src_path),
             "train": "images/train",
@@ -345,6 +373,11 @@ class YOLO:
             yaml.dump(data_yaml, f, default_flow_style=False)
 
     def _draw_predictions(self, pred_dir: str, image_dir: str) -> None:
+        """Draw predictions on images and save them as masks.
+        Args:
+            pred_dir (str): Directory where predictions are stored.
+            image_dir (str): Directory containing the images to draw predictions on.
+        """
         output_dir = os.path.join(pred_dir, "masks")
         os.makedirs(output_dir, exist_ok=True)
 
@@ -379,6 +412,8 @@ class YOLO:
                     lines = f.readlines()
 
                 if not lines:
+                    # If the prediction file is empty, log a warning and save an empty mask
+                    # we want to save an empty mask to avoid a bias in evaluation
                     logger.info(f"No predictions for {image_file}. Saving empty mask.")
                 else:
                     for line in lines:
@@ -401,6 +436,11 @@ class YOLO:
 
 
     def _draw_predictions_old(self, pred_dir: str, image_dir: str) -> None:
+        """Draw predictions on images and save them as masks.
+        Args:
+            pred_dir (str): Directory where predictions are stored.
+            image_dir (str): Directory containing the images to draw predictions on.
+        """
         output_dir = os.path.join(pred_dir, "masks")
         os.makedirs(output_dir, exist_ok=True)
 
@@ -454,7 +494,10 @@ class YOLO:
         logger.success("Predictions drawn and saved correctly.")
 
     def _get_image_size(self) -> tuple[int, int, int]:
-        """Get the image size from the data.yaml file."""
+        """Get the image size from the data.yaml file.
+        Returns:
+            tuple: (height, width, channels) of the first image in the training set.
+        """
         path = self.src_path + "/images/train"
         img = os.listdir(path)
         img = os.path.join(path, img[0])

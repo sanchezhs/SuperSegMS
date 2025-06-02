@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 def get_env() -> EnvConfig:
+    """Retrieve environment configuration from environment variables."""
     return EnvConfig(
         CREDENTIALS_PATH=os.getenv("CREDENTIALS_PATH", "credentials.json"),
         CMB_API_KEY=os.getenv("CMB_API_KEY"),
