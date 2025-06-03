@@ -7,7 +7,7 @@ def train(config: TrainConfig) -> None:
     """Train a model based on the provided configuration."""
     match config.net:
         case Net.UNET:
-            UNet(config, mode="train").train()
+            UNet(config).train()
         case Net.YOLO:
             YOLO(config).train()
         case _:

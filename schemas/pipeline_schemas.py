@@ -120,6 +120,7 @@ class PredictConfig(BaseModel):
 
 class PipelineConfig(BaseModel):
     """Configuration for the entire pipeline."""
+    experiment_id: str
     step: str
     preprocess_config: Optional[PreprocessConfig] = None
     train_config: Optional[TrainConfig] = None

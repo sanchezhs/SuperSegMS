@@ -86,16 +86,12 @@ class UNet:
     def __init__(
         self,
         config: TrainConfig | EvaluateConfig | PredictConfig,
-        mode: Literal["train", "evaluate", "predict"],
     ) -> None:
-        self.mode = mode
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.encoder_name = "resnet34"
         self.config = config
 
-        if mode == "train":
-            assert isinstance(config, TrainConfig), "Train mode requires a TrainConfig"
-
+        if isinstance(config, TrainConfig):
             if config.limit_resources:
                 torch.backends.cudnn.benchmark = True
                 torch.cuda.set_per_process_memory_fraction(
@@ -165,10 +161,7 @@ class UNet:
             self.train_losses = []
             self.val_losses = []
 
-        elif mode == "evaluate":
-            assert isinstance(config, EvaluateConfig), (
-                "Evaluate mode requires an EvaluateConfig"
-            )
+        elif isinstance(config, EvaluateConfig):
             self.src_path = config.src_path
             self.model_path = config.model_path
             self.pred_path = config.pred_path
@@ -191,10 +184,7 @@ class UNet:
                 )
             )
 
-        elif mode == "predict":
-            assert isinstance(config, PredictConfig), (
-                "Predict mode requires a PredictConfig"
-            )
+        elif isinstance(config, PredictConfig):
             self.src_path = config.src_path
             self.dst_path = config.dst_path
             self.model_path = config.model_path
@@ -205,6 +195,8 @@ class UNet:
             self.test_loader = DataLoader(
                 MRIDataset(os.path.join(self.src_path, "images", "test"))
             )
+        else:
+            raise ValueError(f"Invalid configuration type: {type(config)}. Expected TrainConfig, EvaluateConfig, or PredictConfig.")
 
     def train(self) -> None:
         """

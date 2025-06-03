@@ -79,13 +79,15 @@ class YOLO:
             fold_metrics = []
             image_mask_group_quads = []
 
+            # We use all images and masks from train, val, and test splits
+            # for the k-fold cross-validation.
             for split in ["train", "val", "test"]:
                 img_dir = os.path.join(self.src_path, "images", split)
                 mask_dir = os.path.join(self.src_path, "labels", split)
                 for fname in sorted(os.listdir(img_dir)):
                     if fname.lower().endswith((".png", ".jpg", ".jpeg")):
                         base = os.path.splitext(fname)[0]
-                        mask_name = f"{base}.txt"  # o .png si estás usando segmentación
+                        mask_name = f"{base}.txt"
                         img_path = os.path.join(img_dir, fname)
                         txt_mask_path = os.path.join(mask_dir, mask_name)
                         img_mask_path = os.path.join(mask_dir, f"{base}.png")
@@ -247,7 +249,7 @@ class YOLO:
             model.predict(
                 source=image_path,
                 project=pred_dir,
-                name="",  # disables subfolder creation
+                name=".",  # disables subfolder creation
                 save_txt=True,
                 save_conf=True,
                 save_crop=False,
@@ -257,7 +259,7 @@ class YOLO:
             elapsed = time.perf_counter() - start
             inference_times.append(elapsed)
 
-        with open(os.path.join(f"{pred_dir}/predict", "inference_times.json"), "w") as f:
+        with open(os.path.join(f"{pred_dir}", "inference_times.json"), "w") as f:
             json.dump(inference_times, f, indent=4)
 
         logger.success(f"Inference times saved to {os.path.join(pred_dir, 'inference_times.json')}")
@@ -268,7 +270,7 @@ class YOLO:
         """Evaluate the YOLO predictions using the ground truth masks."""
         logger.info(f"Evaluating YOLO predictions in folder {self.pred_path}")
 
-        times_path = os.path.join(self.pred_path, "predict", "inference_times.json")
+        times_path = os.path.join(self.pred_path, "inference_times.json")
         if not os.path.exists(times_path):
             raise FileNotFoundError(
                 f"Times path {times_path} does not exist. Did you run the predict step?"
@@ -381,7 +383,7 @@ class YOLO:
         output_dir = os.path.join(pred_dir, "masks")
         os.makedirs(output_dir, exist_ok=True)
 
-        prediction_dir = os.path.join(pred_dir, "predict", "labels")
+        prediction_dir = os.path.join(pred_dir, "labels")
         if not os.path.exists(prediction_dir):
             raise FileNotFoundError(
                 f"Prediction directory {prediction_dir} does not exist. Did you run the predict step?"

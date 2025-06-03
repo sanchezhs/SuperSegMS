@@ -44,6 +44,7 @@ def parse_json_experiment(config_path: str, experiment_id: str, step: str) -> Pi
 
     try:
         return PipelineConfig(
+            experiment_id=experiment_id,
             step=step,
             preprocess_config=PreprocessConfig(**step_config) if step == "preprocess" else None,
             train_config=TrainConfig(**step_config) if step == "train" else None,
@@ -133,11 +134,11 @@ def run_pipeline(args):
             upload_file_to_bucket(
                 bucket_name=args.bucket,
                 local_path=args.local_path,
-                destination_path=args.destination,
+                destination_path=f"{args.destination}/{experiment_id}",
             )
             logger.info(
                 f"Results for experiment '{experiment_id}' uploaded to bucket '{args.bucket}' "
-                f"at '{args.destination}'."
+                f"at '{args.destination}/{experiment_id}'."
             )
         else:
             logger.info(f"Upload skipped for experiment '{experiment_id}'.")
