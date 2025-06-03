@@ -1,3 +1,5 @@
+import os
+import json
 from enum import Enum, IntEnum
 from typing import Optional, Tuple, Union
 
@@ -66,6 +68,10 @@ class PreprocessConfig(BaseModel):
     threshold: Optional[int] = Field(None, description="Threshold for lesion detection, if applicable")
     resize_method: Optional[ResizeMethod] = None
 
+    def write_config(self) -> None:
+        """Write the configuration to a JSON file."""
+        with open(os.path.join(self.dst_path, "preprocess_params.json"), "w") as f:
+            json.dump(self.model_dump(), f, indent=4)
 
 class TrainConfig(BaseModel):
     """Configuration for training a model."""
@@ -80,6 +86,11 @@ class TrainConfig(BaseModel):
     kfold_n_splits: int = 5
     kfold_seed: int = 42
 
+    def write_config(self) -> None:
+        """Write the training configuration to a JSON file."""
+        with open(os.path.join(self.dst_path, "train_params.json"), "w") as f:
+            json.dump(self.model_dump(), f, indent=4)
+
 
 class EvaluateConfig(BaseModel):
     """Configuration for evaluating a trained model."""
@@ -89,6 +100,11 @@ class EvaluateConfig(BaseModel):
     pred_path: str
     gt_path: str
 
+    def write_config(self) -> None:
+        """Write the evaluation configuration to a JSON file."""
+        with open(os.path.join(self.src_path, "evaluate_params.json"), "w") as f:
+            json.dump(self.model_dump(), f, indent=4)
+
 
 class PredictConfig(BaseModel):
     """Configuration for making predictions."""
@@ -97,6 +113,10 @@ class PredictConfig(BaseModel):
     src_path: str
     dst_path: str
 
+    def write_config(self) -> None:
+        """Write the prediction configuration to a JSON file."""
+        with open(os.path.join(self.dst_path, "predict_params.json"), "w") as f:
+            json.dump(self.model_dump(), f, indent=4)
 
 class PipelineConfig(BaseModel):
     """Configuration for the entire pipeline."""

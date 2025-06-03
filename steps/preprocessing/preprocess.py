@@ -1,4 +1,3 @@
-import json
 import os
 from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -571,13 +570,6 @@ def process_single_patient(
                 super_scale=super_scale,
             )
 
-def write_preprocess_params(config: PreprocessConfig) -> None:
-    """Write preprocessing parameters to a JSON file."""
-    with open(os.path.join(config.dst_path, "preprocess_params.json"), "w") as f:
-        json.dump(config.model_dump(), f, indent=4)
-
-    logger.info("Preprocess parameters saved to preprocess_params.json")
-
 def preprocess(config: PreprocessConfig) -> None:
     """
     Preprocess images based on the provided configuration.
@@ -623,4 +615,4 @@ def preprocess(config: PreprocessConfig) -> None:
         case _:
             raise ValueError(f"Invalid net name {net}")
 
-    write_preprocess_params(config)
+    config.write_config()
