@@ -135,8 +135,9 @@ def make_default_experiment_template() -> dict:
             "src_path": "<path to raw data folder>",
             "dst_path": "<where to write processed data>",
             "resize": [320, 320],
+            "seed": 42,
             "split": 0.7,
-            "strategy": "<e.g. 'all_slices', 'lesion_slices', 'top_five'>",
+            "strategy": "<e.g. 'all_slices', 'lesion_slices', 'lesion_block'>",
             "super_scale": 1
         },
         "train": {
