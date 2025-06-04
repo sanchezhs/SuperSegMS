@@ -4,6 +4,7 @@ logs/
 old_scripts/
 credentials.json
 roadmap.md
+venv/
 *.pt
 *.pth
 *.zip
