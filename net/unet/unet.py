@@ -1,19 +1,27 @@
-import time
+import json
 import os
+import time
+from typing import Literal
+
 import cv2
+import matplotlib.pyplot as plt
 import numpy as np
+import segmentation_models_pytorch as smp
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import segmentation_models_pytorch as smp
-import matplotlib.pyplot as plt
-import json
-from torch.utils.data import DataLoader, Dataset
-from tqdm import tqdm
-from typing import Dict, List, Literal
 from loguru import logger
+from sklearn.model_selection import GroupKFold
+from torch.utils.data import ConcatDataset, DataLoader, Dataset, Subset
+from tqdm import tqdm
 
-from schemas.pipeline_schemas import TrainConfig, EvaluateConfig, PredictConfig, SegmentationMetrics
+from utils.send_msg import send_whatsapp_message
+from schemas.pipeline_schemas import (
+    EvaluateConfig,
+    PredictConfig,
+    SegmentationMetrics,
+    TrainConfig,
+)
 
 
 class MRIDataset(Dataset):
@@ -33,7 +41,7 @@ class MRIDataset(Dataset):
     def __len__(self) -> int:
         return len(self.images)
 
-    def __getitem__(self, idx: int):
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor | None, str]:
         img_path = os.path.join(self.img_dir, self.images[idx])
         img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255.0
         img = torch.tensor(img).unsqueeze(0)
@@ -53,7 +61,7 @@ class BCEDiceLoss(nn.Module):
         super().__init__()
         self.bce = nn.BCEWithLogitsLoss()
 
-    def forward(self, inputs, targets):
+    def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         bce_loss = self.bce(inputs, targets)
         probs = torch.sigmoid(inputs)
         smooth = 1e-5
@@ -69,18 +77,21 @@ class BCEDiceLoss(nn.Module):
 
 
 class UNet:
+    """
+    U-Net model for MRI segmentation tasks.
+    This class handles training, evaluation, and prediction using a U-Net architecture.
+    It supports training with k-fold cross-validation, evaluation on validation datasets,
+    and prediction on test datasets.
+    """
     def __init__(
         self,
         config: TrainConfig | EvaluateConfig | PredictConfig,
-        mode: Literal["train", "evaluate", "predict"],
     ) -> None:
-        self.mode = mode
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.encoder_name = "resnet34"
+        self.config = config
 
-        if mode == "train":
-            assert isinstance(config, TrainConfig), "Train mode requires a TrainConfig"
-
+        if isinstance(config, TrainConfig):
             if config.limit_resources:
                 torch.backends.cudnn.benchmark = True
                 torch.cuda.set_per_process_memory_fraction(
@@ -92,7 +103,11 @@ class UNet:
             self.batch_size = config.batch_size
             self.epochs = config.epochs
             self.learning_rate = config.learning_rate
+            self.metrics = None
             self.dst_path = config.dst_path
+            self.use_kfold = config.use_kfold
+            self.kfold_n_splits = config.kfold_n_splits
+            self.kfold_seed = config.kfold_seed
             self.model_name = self.dst_path.split("/")[-1]
             self.model_path = os.path.join(self.dst_path, "models", f"{self.model_name}.pth")
 
@@ -113,6 +128,25 @@ class UNet:
                 ),
                 num_workers=4,
             )
+
+            if not self.use_kfold:
+                self.train_loader = DataLoader(
+                    MRIDataset(
+                        os.path.join(self.src_path, "images", "train"),
+                        os.path.join(self.src_path, "labels", "train"),
+                    ),
+                    batch_size=self.batch_size,
+                    num_workers=4,
+                )
+                self.val_loader = DataLoader(
+                    MRIDataset(
+                        os.path.join(self.src_path, "images", "val"),
+                        os.path.join(self.src_path, "labels", "val"),
+                    ),
+                    batch_size=self.batch_size,
+                    num_workers=4,
+                )
+
             self.model = smp.Unet(
                 encoder_name=self.encoder_name, in_channels=1, classes=1, activation=None
             ).to(self.device)
@@ -127,10 +161,7 @@ class UNet:
             self.train_losses = []
             self.val_losses = []
 
-        elif mode == "evaluate":
-            assert isinstance(config, EvaluateConfig), (
-                "Evaluate mode requires an EvaluateConfig"
-            )
+        elif isinstance(config, EvaluateConfig):
             self.src_path = config.src_path
             self.model_path = config.model_path
             self.pred_path = config.pred_path
@@ -153,10 +184,7 @@ class UNet:
                 )
             )
 
-        elif mode == "predict":
-            assert isinstance(config, PredictConfig), (
-                "Predict mode requires a PredictConfig"
-            )
+        elif isinstance(config, PredictConfig):
             self.src_path = config.src_path
             self.dst_path = config.dst_path
             self.model_path = config.model_path
@@ -167,19 +195,77 @@ class UNet:
             self.test_loader = DataLoader(
                 MRIDataset(os.path.join(self.src_path, "images", "test"))
             )
+        else:
+            raise ValueError(f"Invalid configuration type: {type(config)}. Expected TrainConfig, EvaluateConfig, or PredictConfig.")
 
     def train(self) -> None:
+        """
+        Train the U-Net model using the specified training configuration.
+        If k-fold cross-validation is enabled, it will perform k-fold training.
+        Otherwise, it will train on the provided training and validation datasets.
+        """
         logger.info(f"Training model {self.model_name}")
 
-        best_val_loss = float("inf")
+        if getattr(self, 'use_kfold', False):
+            # combine train, val, test
+            splits = ["train", "val", "test"]
+            datasets = [
+                MRIDataset(
+                    os.path.join(self.src_path, "images", s),
+                    os.path.join(self.src_path, "labels", s)
+                ) for s in splits
+            ]
+            # build group labels from filenames (assumes IDs before underscore)
+            group_labels = []
+            for ds in datasets:
+                for img_name in ds.images:
+                    pid = img_name.split('_')[0]
+                    group_labels.append(pid)
 
+            dataset = ConcatDataset(datasets)
+            gkf = GroupKFold(n_splits=self.kfold_n_splits)
+            all_metrics = []
+
+            for fold, (train_idx, val_idx) in enumerate(gkf.split(
+                X=np.arange(len(dataset)),
+                groups=group_labels
+            )):
+                logger.info(f"Starting fold {fold+1}/{self.kfold_n_splits}")
+                train_loader = DataLoader(
+                    Subset(dataset, train_idx),
+                    batch_size=self.batch_size,
+                    num_workers=2,
+                )
+                val_loader = DataLoader(
+                    Subset(dataset, val_idx),
+                    batch_size=self.batch_size,
+                    num_workers=2,
+                )
+                fold_trainer = UNet.from_kfold(
+                    self.config, fold, train_loader, val_loader
+                )
+                fold_trainer.train()
+                metrics = fold_trainer.evaluate()
+                all_metrics.append(metrics)
+
+                send_whatsapp_message(
+                    f"U-Net Fold {fold+1}/{self.kfold_n_splits} completed. "
+                    f"Metrics: {metrics}"
+                )
+
+            summary = self._compute_mean_std_metrics(all_metrics)
+            self._write_summary(summary)
+            send_whatsapp_message(
+                f"U-Net Cross-validation completed. Summary: {summary}"
+            )
+            return summary
+
+        # Standard training
+        best_val_loss = float("inf")
         for epoch in range(self.epochs):
             self.model.train()
             epoch_loss = 0
-
-            for images, masks, _ in tqdm(
-                self.train_loader, desc=f"Epoch {epoch + 1}/{self.epochs}"
-            ):
+            for images, masks, _ in tqdm(self.train_loader, desc=f"Epoch {epoch+1}/{self.epochs}"):  
                 images, masks = images.to(self.device), masks.to(self.device)
                 self.optimizer.zero_grad()
                 outputs = self.model(images)
@@ -187,27 +273,68 @@ class UNet:
                 loss.backward()
                 self.optimizer.step()
                 epoch_loss += loss.item()
-
             val_loss = self.validate()
             self.scheduler.step(val_loss)
-
-            avg_train_loss = epoch_loss / len(self.train_loader)
-            self.train_losses.append(avg_train_loss)
+            self.train_losses.append(epoch_loss/len(self.train_loader))
             self.val_losses.append(val_loss)
-
-            logger.info(
-                f"Epoch [{epoch + 1}/{self.epochs}], Loss: {epoch_loss / len(self.train_loader):.4f}, Val Loss: {val_loss:.4f}"
-            )
-
+            logger.info(f"Epoch [{epoch+1}/{self.epochs}], Loss: {epoch_loss/len(self.train_loader):.4f}, Val Loss: {val_loss:.4f}")
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 torch.save(self.model.state_dict(), self.model_path)
-                logger.info(f"New best model saved in {self.model_path}")
-        
+                logger.info(f"Saved best model to {self.model_path}")
         self._plot_loss_curve()
 
+    @classmethod
+    def from_kfold(cls, config: TrainConfig, fold: int, train_loader, val_loader) -> "UNet":
+        """
+        Create a U-Net instance for k-fold training.
+        Args:
+            config (TrainConfig): Configuration for training.
+            fold (int): Current fold number.
+            train_loader (DataLoader): DataLoader for training data.
+            val_loader (DataLoader): DataLoader for validation data.
+        Returns:
+            UNet: An instance of the U-Net model configured for k-fold training.
+        """
+        instance = cls.__new__(cls)
+        instance.mode = "train"
+        instance.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        instance.encoder_name = "resnet34"
+        instance.config = config
+        instance.batch_size = config.batch_size
+        instance.epochs = config.epochs
+        instance.learning_rate = config.learning_rate
+        instance.use_kfold = False  
+
+        base = os.path.basename(config.dst_path.rstrip('/'))
+        instance.dst_path = os.path.join(config.dst_path, f"{base}_fold_{fold}")
+        instance.model_name = f"{base}_fold_{fold}"
+        instance.model_path = os.path.join(instance.dst_path, "models", f"{instance.model_name}.pth")
+        os.makedirs(instance.dst_path, exist_ok=True)
+        os.makedirs(os.path.join(instance.dst_path, "models"), exist_ok=True)
+
+        instance.train_loader = train_loader
+        instance.val_loader = val_loader
+        instance.model = smp.Unet(
+            encoder_name=instance.encoder_name,
+            in_channels=1,
+            classes=1,
+            activation=None
+        ).to(instance.device)
+        instance.criterion = BCEDiceLoss()
+        instance.optimizer = optim.Adam(instance.model.parameters(), lr=instance.learning_rate)
+        instance.scheduler = optim.lr_scheduler.ReduceLROnPlateau(instance.optimizer, mode="min", factor=0.1, patience=5)
+        instance.train_losses = []
+        instance.val_losses = []
+        instance.pred_path = instance.dst_path
+        return instance
 
     def validate(self) -> float:
+        """
+        Validate the model on the validation dataset and return the average loss.
+        Returns:
+            float: Average validation loss.
+        """
         self.model.eval()
         val_loss = 0
         with torch.no_grad():
@@ -219,6 +346,12 @@ class UNet:
         return val_loss / len(self.val_loader)
 
     def evaluate(self) -> None:
+        """
+        Evaluate the model on the validation dataset and compute various segmentation metrics.
+        This method loads the model weights, performs inference on the validation dataset,
+        and computes metrics such as IoU, Dice score, precision, recall, F1 score, and specificity.
+        The results are saved in the specified prediction path in JSON format.
+        """
         logger.info(f"Evaluating model {self.model_path}")
 
         self.model.load_state_dict(
@@ -251,12 +384,20 @@ class UNet:
 
         logger.info(f"Metrics saved in {self.pred_path}/metrics.json")
         self._write_metrics(SegmentationMetrics(**avg_metrics), format="json")
+        self.metrics = avg_metrics
         logger.info("Average metrics:")
         logger.info(
             "\n\t- ".join([f"{k}: {v:.4f}" for k, v in avg_metrics.items()])
         )
 
+        return avg_metrics
+
     def predict(self) -> None:
+        """
+        Predict segmentation masks for images in the test dataset and save the results.
+        This method loads the model weights, performs inference on the test dataset,
+        and saves the predicted masks as images in the specified destination path.
+        """
         logger.info(f"Predicting images in {self.src_path} and saving to {self.dst_path}")
         self.model.load_state_dict(
             torch.load(self.model_path, map_location=self.device)
@@ -275,6 +416,7 @@ class UNet:
 
         logger.info(f"Predictions saved in test directory: {self.dst_path}")
 
+    # ------------------------- Private Methods -------------------------
     def _load_model(self) -> None:
         """Load pre-trained model"""
         self.model.load_state_dict(
@@ -283,8 +425,16 @@ class UNet:
         self.model.eval()
 
     def _compute_all_metrics(
-        self, pred, mask
+        self, pred: np.ndarray, mask: np.ndarray
     ) -> tuple[float, float, float, float, float, float]:
+        """
+        Compute segmentation metrics: IoU, Dice score, precision, recall, F1 score, and specificity.
+        Args:
+            pred (np.ndarray): Predicted mask.
+            mask (np.ndarray): Ground truth mask.
+        Returns:
+            tuple: A tuple containing IoU, Dice score, precision, recall, F1 score, and specificity.
+        """
         pred_bin = (pred > 0.5).astype(np.uint8)
         mask_bin = (mask > 0.5).astype(np.uint8)
 
@@ -307,6 +457,12 @@ class UNet:
         return iou, dice, precision, recall, f1_score, specificity
 
     def _write_metrics(self, metrics: SegmentationMetrics, format: str = "json") -> None:
+        """
+        Write segmentation metrics to a file in the specified format (JSON or CSV).
+        Args:
+            metrics (SegmentationMetrics): The metrics to write.
+            format (str): The format to save the metrics in ("json" or "csv").
+        """
         if format == "csv":
             with open(os.path.join(self.pred_path, "metrics.csv"), "w") as f:
                 f.write("Metric,Value\n")
@@ -314,12 +470,17 @@ class UNet:
                     f.write(f"{key},{value}\n")
         else:
             with open(os.path.join(self.pred_path, "metrics.json"), "w") as f:
-                json.dump(metrics.as_dict(), f, indent=4)
+                json.dump(metrics.model_dump(), f, indent=4)
 
         logger.info(f"Metrics saved in {self.pred_path}/metrics.{format}")
 
     def _plot_loss_curve(self) -> None:
-        title = self.model_name if self.mode == "train" else "Loss Curve"
+        """
+        Plot and save the training and validation loss curves.
+        This method generates a plot showing the loss over epochs for both training and validation datasets.
+        The plot is saved in the destination path with a filename based on the model name.
+        """
+        title = self.model_name
         plt.figure(figsize=(10, 5))
         plt.plot(self.train_losses, label='Training Loss')
         plt.plot(self.val_losses, label='Validation Loss')
@@ -332,47 +493,45 @@ class UNet:
         logger.info(f"Loss curve saved at {self.dst_path}/loss_curve.png")
 
     def _infer_and_time(self, image: torch.Tensor) -> tuple[np.ndarray, float]:
+        """
+        Perform inference on a single image and measure the time taken.
+        Args:
+            image (torch.Tensor): Input image tensor.
+        Returns:
+            tuple: A tuple containing the predicted mask and the time taken for inference.
+        """
         start = time.perf_counter()
         with torch.no_grad():
             pred = torch.sigmoid(self.model(image)).cpu().numpy().squeeze()
         elapsed = time.perf_counter() - start
         return pred, elapsed
 
-    def _plot_metrics(self, metrics_list: List[Dict[str, float]]) -> None:
-        output_dir = self.pred_path
-        os.makedirs(output_dir, exist_ok=True)
-
-        # Compute average of each metric
-        avg_metrics = {metric: np.mean([m[metric] for m in metrics_list]) for metric in metrics_list[0]}
-
-        # Prepare data for the table
-        table_data = [[metric.replace("_", " ").title(), value] for metric, value in avg_metrics.items()]
-        headers = ["Metric", "Average Value"]
-
-        # Create a figure for the table
-        fig, ax = plt.subplots(figsize=(8, 4))
-        ax.axis("tight")
-        ax.axis("off")
-        table = ax.table(cellText=table_data, colLabels=headers, loc="center", cellLoc="center")
-        table.auto_set_font_size(False)
-        table.set_fontsize(10)
-        table.auto_set_column_width(col=list(range(len(headers))))
-
-        # Save the table as an image
-        table_path = os.path.join(output_dir, "avg_metrics_table.png")
-        plt.savefig(table_path, bbox_inches="tight")
-        plt.close()
-
-        logger.info(f"Average metrics table saved at {table_path}")
-
-    def _to_dict(self) -> dict:
-        """Convert the UNet instance to a dictionary."""
+    def _compute_mean_std_metrics(self, metrics_list: list[dict]) -> dict:
+        """
+        Compute mean and standard deviation for each metric across all folds.
+        Args:
+            metrics_list (list[dict]): List of dictionaries containing metrics from each fold.
+        Returns:
+            dict: A dictionary with mean and std for each metric.
+        """
+        keys = metrics_list[0].keys()
         return {
-            "src_path": self.src_path,
-            "dst_path": self.dst_path,
-            "model_name": self.model_name,
-            "model_path": self.model_path,
-            "batch_size": self.batch_size,
-            "epochs": self.epochs,
-            "learning_rate": self.learning_rate,
+            key: {
+                "mean": float(np.mean([m[key] for m in metrics_list])),
+                "std": float(np.std([m[key] for m in metrics_list]))
+            } for key in keys
         }
+
+    def _write_summary(self, metrics_dict: dict) -> None:
+        """
+        Write a summary of cross-validation metrics to a JSON file.
+        Args:
+            metrics_dict (dict): Dictionary containing mean and std for each metric.
+        """
+        summary_path = os.path.join(self.dst_path, "cv_summary.json")
+        with open(summary_path, "w") as f:
+            json.dump(metrics_dict, f, indent=4)
+        logger.info(f"Cross-validation summary saved at {summary_path}")
+        print("\nCross-Validation Summary:\n")
+        for key, val in metrics_dict.items():
+            print(f"{key:15s}: {val['mean']:.4f} ± {val['std']:.4f}")

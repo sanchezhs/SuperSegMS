@@ -1,6 +1,9 @@
 .vscode/
 logs/
 .mypy_cache/
+old_scripts/
+credentials.json
+roadmap.md
 *.pt
 *.pth
 *.zip
@@ -8,7 +11,12 @@ logs/
 results*/
 MSLesSeg-Dataset/
 runs/
-datasets/
+gcs_api.json
+.env
+
+# Add folder but ignore its contents
+!datasets/
+datasets/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
