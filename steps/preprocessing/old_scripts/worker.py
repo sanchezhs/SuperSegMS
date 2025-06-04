@@ -57,7 +57,7 @@ def process_patient(
                 _, slice_idxs = get_all_lesion_slices(flair_img, mask_img, only_lesion_slices=False)
             case Strategy.LESION:
                 _, slice_idxs = get_all_lesion_slices(flair_img, mask_img, only_lesion_slices=True)
-            case Strategy.TOP_FIVE:
+            case Strategy.LESION_BLOCK:
                 _, slice_idxs = get_centered_lesion_block(flair_img, mask_img, block_size=5)
             case _:
                 raise ValueError(f"Invalid strategy {strategy}")

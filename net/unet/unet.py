@@ -329,45 +329,6 @@ class UNet:
         instance.pred_path = instance.dst_path
         return instance
 
-    # def train2(self) -> None:
-    #     logger.info(f"Training model {self.model_name}")
-
-    #     best_val_loss = float("inf")
-
-    #     for epoch in range(self.epochs):
-    #         self.model.train()
-    #         epoch_loss = 0
-
-    #         for images, masks, _ in tqdm(
-    #             self.train_loader, desc=f"Epoch {epoch + 1}/{self.epochs}"
-    #         ):
-    #             images, masks = images.to(self.device), masks.to(self.device)
-    #             self.optimizer.zero_grad()
-    #             outputs = self.model(images)
-    #             loss = self.criterion(outputs, masks)
-    #             loss.backward()
-    #             self.optimizer.step()
-    #             epoch_loss += loss.item()
-
-    #         val_loss = self.validate()
-    #         self.scheduler.step(val_loss)
-
-    #         avg_train_loss = epoch_loss / len(self.train_loader)
-    #         self.train_losses.append(avg_train_loss)
-    #         self.val_losses.append(val_loss)
-
-    #         logger.info(
-    #             f"Epoch [{epoch + 1}/{self.epochs}], Loss: {epoch_loss / len(self.train_loader):.4f}, Val Loss: {val_loss:.4f}"
-    #         )
-
-    #         if val_loss < best_val_loss:
-    #             best_val_loss = val_loss
-    #             torch.save(self.model.state_dict(), self.model_path)
-    #             logger.info(f"New best model saved in {self.model_path}")
-        
-    #     self._plot_loss_curve()
-
-
     def validate(self) -> float:
         """
         Validate the model on the validation dataset and return the average loss.
@@ -455,6 +416,7 @@ class UNet:
 
         logger.info(f"Predictions saved in test directory: {self.dst_path}")
 
+    # ------------------------- Private Methods -------------------------
     def _load_model(self) -> None:
         """Load pre-trained model"""
         self.model.load_state_dict(
@@ -518,7 +480,7 @@ class UNet:
         This method generates a plot showing the loss over epochs for both training and validation datasets.
         The plot is saved in the destination path with a filename based on the model name.
         """
-        title = self.model_name if self.mode == "train" else "Loss Curve"
+        title = self.model_name
         plt.figure(figsize=(10, 5))
         plt.plot(self.train_losses, label='Training Loss')
         plt.plot(self.val_losses, label='Validation Loss')

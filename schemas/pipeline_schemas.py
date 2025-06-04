@@ -40,7 +40,7 @@ class Strategy(str, Enum):
     """Strategy for handling slices in the dataset."""
     ALL_SLICES = "all_slices"
     LESION = "lesion_slices"
-    TOP_FIVE = "top_five"
+    LESION_BLOCK = "lesion_block"
 
 
 class EnvConfig(BaseModel):
@@ -65,6 +65,8 @@ class PreprocessConfig(BaseModel):
     resize: Tuple[int, int] = Field(..., description="Resize dimensions (width,height)")
     strategy: Strategy
     split: float = Field(0.8, ge=0.0, le=1.0)
+    seed: int = Field(42, description="Random seed for reproducibility")
+    block_size: Optional[int] = Field(None, description="Block size for lesion detection, if applicable")
     threshold: Optional[int] = Field(None, description="Threshold for lesion detection, if applicable")
     resize_method: Optional[ResizeMethod] = None
 

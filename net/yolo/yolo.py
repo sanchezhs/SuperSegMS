@@ -2,16 +2,16 @@ import json
 import os
 import shutil
 import time
+from typing import Optional
 
 import cv2
 import numpy as np
 import yaml
 from loguru import logger
 from sklearn.model_selection import GroupKFold
-from typing import Optional
 from ultralytics import YOLO as uYOLO
 
-from schemas.pipeline_schemas import EvaluateConfig, PredictConfig, TrainConfig, Net
+from schemas.pipeline_schemas import EvaluateConfig, Net, PredictConfig, TrainConfig
 from utils.send_msg import send_whatsapp_message
 
 
@@ -357,7 +357,8 @@ class YOLO:
         logger.success("Evaluation completed.")
 
         return avg_metrics
-
+    
+    # ------------------------- Private Methods -------------------------
     def _create_yaml(self) -> None:
         """Create a data.yaml file for YOLO training or prediction.
         This file contains paths to training and validation images, number of classes,
@@ -436,65 +437,6 @@ class YOLO:
 
         logger.success("Predictions drawn and saved correctly.")
 
-
-    def _draw_predictions_old(self, pred_dir: str, image_dir: str) -> None:
-        """Draw predictions on images and save them as masks.
-        Args:
-            pred_dir (str): Directory where predictions are stored.
-            image_dir (str): Directory containing the images to draw predictions on.
-        """
-        output_dir = os.path.join(pred_dir, "masks")
-        os.makedirs(output_dir, exist_ok=True)
-
-        prediction_dir = os.path.join(pred_dir, "predict", "labels")
-        if not os.path.exists(prediction_dir):
-            raise FileNotFoundError(
-                f"Prediction directory {prediction_dir} does not exist. Did you run the predict step?"
-            )
-
-        image_files = sorted(
-            [f for f in os.listdir(image_dir) if f.endswith((".png", ".jpg"))]
-        )
-
-        for image_file in image_files:
-            base_name = os.path.splitext(image_file)[0]
-            prediction_path = os.path.join(prediction_dir, f"{base_name}.txt")
-            image_path = os.path.join(image_dir, image_file)
-
-            if not os.path.exists(prediction_path):
-                logger.warning(f"Prediction not found for {image_file}")
-                continue
-
-            img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-            if img is None:
-                logger.warning(f"Could not load image {image_path}")
-                continue
-
-            img_size = self._get_image_size()
-            img = cv2.resize(img, img_size[:2])
-            mask = np.zeros_like(img)
-
-            with open(prediction_path, "r") as f:
-                lines = f.readlines()
-
-            for line in lines:
-                values = list(map(float, line.split()))
-                if len(values) > 2:
-                    coords = values[1:]
-                    if len(coords) % 2 != 0:
-                        coords = coords[:-1]
-                    if len(coords) >= 4:
-                        points = np.array(coords).reshape(-1, 2)
-                        points[:, 0] *= img_size[1]
-                        points[:, 1] *= img_size[0]
-                        points = points.astype(np.int32)
-                        cv2.fillPoly(mask, [points], color=255)
-
-            cv2.imwrite(os.path.join(output_dir, f"{base_name}.png"), mask)
-            logger.info(f"Saved: {os.path.join(output_dir, f'{base_name}.png')}")
-
-        logger.success("Predictions drawn and saved correctly.")
-
     def _get_image_size(self) -> tuple[int, int, int]:
         """Get the image size from the data.yaml file.
         Returns:
@@ -505,76 +447,3 @@ class YOLO:
         img = os.path.join(path, img[0])
         img = cv2.imread(img)
         return img.shape  # (height, width, channels)
-
-    # def _draw_predictions(self, dst_path: Optional[str]) -> None:
-    #     if dst_path:
-    #         self.dst_path = dst_path
-    #         img_val_dir = "val" # If kfold test is val, otherwise it is test
-    #     output_dir = os.path.join(self.dst_path, "masks")
-    #     os.makedirs(output_dir, exist_ok=True)
-
-    #     logger.info(f"Creadted output directory for image masks: {output_dir}")
-    #     prediction_dir = os.path.join(self.dst_path, "predict", "labels")
-
-    #     if not os.path.exists(prediction_dir):
-    #         raise FileNotFoundError(
-    #             f"Prediction directory {prediction_dir} does not exist. Did you run the predict step?"
-    #         )
-
-    #     img_size = self._get_image_size()
-    #     image_dir = os.path.join(self.src_path, "images", img_val_dir)
-    #     image_files = sorted(
-    #         [f for f in os.listdir(image_dir) if f.endswith((".png", ".jpg"))]
-    #     )
-
-    #     for image_file in image_files:
-    #         base_name = os.path.splitext(image_file)[0]
-    #         prediction_file = f"{base_name}.txt"
-
-    #         image_path = os.path.join(image_dir, image_file)
-    #         prediction_path = os.path.join(prediction_dir, prediction_file)
-
-    #         if not os.path.exists(prediction_path):
-    #             logger.info(f"Warning: Prediction not found for {image_file}")
-    #             continue
-
-    #         img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-    #         if img is None:
-    #             logger.warning(f"Error: Could not load image {image_path}")
-    #             continue
-
-    #         img = cv2.resize(img, img_size[:2])
-    #         mask = np.zeros_like(img)
-
-    #         with open(prediction_path, "r") as f:
-    #             lines = f.readlines()
-
-    #         for line in lines:
-    #             values = list(map(float, line.split()))
-
-    #             if len(values) > 2:
-    #                 coords = values[1:]
-
-    #                 if len(coords) % 2 != 0:
-    #                     logger.warning(
-    #                         f"Odd number of coordinates in {line}, discarding last value."
-    #                     )
-    #                     coords = coords[:-1]
-
-    #                 if len(coords) >= 4:
-    #                     points = np.array(coords).reshape(-1, 2)
-    #                     points[:, 0] *= img_size[1]
-    #                     points[:, 1] *= img_size[0]
-    #                     points = points.astype(np.int32)
-
-    #                     cv2.polylines(
-    #                         mask, [points], isClosed=True, color=255, thickness=1
-    #                     )
-    #                     cv2.fillPoly(mask, [points], color=255)
-
-    #         dst_masks_path = os.path.join(output_dir, f"{base_name}.png")
-    #         cv2.imwrite(dst_masks_path, mask)
-    #         logger.info(f"Saved: {dst_masks_path}")
-
-    #     logger.success("Predictions drawn and saved correctly.")
-

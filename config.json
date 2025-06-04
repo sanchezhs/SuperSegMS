@@ -8,6 +8,7 @@
                 "dst_path": "datasets/unet_all_kfolds",
                 "resize": [320, 320],
                 "split": 0.7,
+                "seed": 42,
                 "strategy": "all_slices",
                 "super_scale": 1
             },
@@ -42,6 +43,7 @@
                 "dst_path": "datasets/yolo_all_kfolds",
                 "resize": [320, 320],
                 "split": 0.7,
+                "seed": 42,
                 "strategy": "all_slices",
                 "super_scale": 1
             },
@@ -76,6 +78,7 @@
                 "dst_path": "datasets/unet_lesion_kfolds",
                 "resize": [320, 320],
                 "split": 0.7,
+                "seed": 42,
                 "strategy": "lesion_slices",
                 "super_scale": 1
             },
@@ -110,6 +113,7 @@
                 "dst_path": "datasets/unet_lesion_x2_kfolds",
                 "resize": [320, 320],
                 "split": 0.7,
+                "seed": 42,
                 "strategy": "lesion_slices",
                 "super_scale": 2
             },
@@ -144,6 +148,7 @@
                 "dst_path": "datasets/yolo_lesion_kfolds",
                 "resize": [320, 320],
                 "split": 0.7,
+                "seed": 42,
                 "strategy": "lesion_slices",
                 "super_scale": 1
             },
@@ -178,6 +183,7 @@
                 "dst_path": "datasets/yolo_lesion_x2_kfolds",
                 "resize": [320, 320],
                 "split": 0.7,
+                "seed": 42,
                 "super_scale": 2,
                 "strategy": "lesion_slices"
             },
@@ -212,7 +218,9 @@
                 "dst_path": "datasets/unet_top5_slice_x0",
                 "resize": [320, 320],
                 "split": 0.7,
-                "strategy": "top_five",
+                "seed": 42,
+                "block_size": 5,
+                "strategy": "lesion_block",
                 "threshold": 0,
                 "super_scale": 1
             },
@@ -247,7 +255,9 @@
                 "dst_path": "datasets/unet_top5_slice_x2",
                 "resize": [320, 320],
                 "split": 0.7,
-                "strategy": "top_five",
+                "seed": 42,
+                "block_size": 5,
+                "strategy": "lesion_block",
                 "threshold": 0,
                 "super_scale": 2
             },
@@ -282,7 +292,9 @@
                 "dst_path": "datasets/yolo_top5_slice_x0",
                 "resize": [320, 320],
                 "split": 0.7,
-                "strategy": "top_five",
+                "seed": 42,
+                "block_size": 5,
+                "strategy": "lesion_block",
                 "threshold": 0,
                 "super_scale": 1
             },
@@ -314,10 +326,12 @@
             "preprocess": {
                 "net": "yolo",
                 "src_path": "datasets/MSLesSeg-Dataset",
-                "dst_path": "datasets/yolo_top5_slice_x2",
+                "dst_path": "datasets/yolo_top5_slice_x2_prueba",
                 "resize": [320, 320],
                 "split": 0.7,
-                "strategy": "top_five",
+                "seed": 42,
+                "block_size": 5,
+                "strategy": "lesion_block",
                 "threshold": 0,
                 "super_scale": 2
             },
