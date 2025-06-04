@@ -1,6 +1,9 @@
 .vscode/
 logs/
 .mypy_cache/
+old_scripts/
+credentials.json
+roadmap.md
 *.pt
 *.pth
 *.zip

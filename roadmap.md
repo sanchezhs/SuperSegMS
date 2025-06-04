@@ -57,16 +57,15 @@ Formato imágenes: (182, 218, 182) -> (Píxeles, Píxeles, Cantidad de cortes)
 - La YOLO rinde peor que la UNET
 
 Estado | ID  | Red    | Slice Selection  | Super Resolución
-[X]     | A   | UNet   | BASE             | Sin SR 
-[X]     | B   | YOLO   | BASE             | Sin SR
-[X]     | C   | UNet   | ALL              | Sin SR 
-[X]     | D   | UNet   | ALL              | x2
-[X]     | E   | YOLO   | ALL              | Sin SR
-[X]     | F   | YOLO   | ALL              | x2
-[X]     | G   | UNet   | Top 5 slices     | Sin SR
-[X]     | H   | UNet   | Top 5 slices     | x2
-[X]     | I   | YOLO   | Top 5 slices     | Sin SR
-[X]     | J   | YOLO   | Top 5 slices     | x2
+[X]     | A   | UNet   | BASE            | Sin SR gcloud
+[]     | B   | YOLO   | BASE             | Sin SR gcloud
+[X]     | C   | UNet   | LESION           | Sin SR local
+[X]     | E   | YOLO   | LESION           | Sin SR local
+[X]     | F   | YOLO   | LESION           | x2     gcloud 
+[X]    | G   | UNet   | Top 5 slices     | Sin SR
+[X]    | H   | UNet   | Top 5 slices     | x2
+[X]    | I   | YOLO   | Top 5 slices     | Sin SR
+[]    | J   | YOLO   | Top 5 slices     | x2
 
 # GCLOUD
 ## Buckets
@@ -74,53 +73,16 @@ Estado | ID  | Red    | Slice Selection  | Super Resolución
     - Copiar los archivos: `gcloud storage cp --recursive ./datasets gs://tfm-training-datasets/datasets/`
 - Crear bucket para resultados: `gs://tfm-training-results/`
 
-## Artifacts
-- Crear repositorio: `tfm-med-seg-docker`
-- Construir la imagen con el tag
-`docker build -t europe-west1-docker.pkg.dev/snappy-surf-392910/tfm-med-seg-docker/train-nets:v1 .`
-`docker build -t europe-southwest1-docker.pkg.dev/snappy-surf-392910/tfm-med-seg-docker/train-nets:v1 .`
-- Subir la imagen con el tag
-`docker push europe-southwest1-docker.pkg.dev/snappy-surf-392910/tfm-med-seg-docker/train-nets:v1`
+## Colab
+- Crear .env
+- Copiar gcs_api.json
 
-## Instances
-- Crear la VM:
-```bash
-gcloud compute instances create-with-container tfm-vm \
-  --zone=us-west2-c \
-  --machine-type=n1-standard-4 \
-  --accelerator=type=nvidia-tesla-t4,count=1 \
-  --boot-disk-size=100GB \
-  --scopes=https://www.googleapis.com/auth/cloud-platform \
-  --container-image=europe-southwest1-docker.pkg.dev/snappy-surf-392910/tfm-med-seg-docker/train-nets:v1 \
-  --maintenance-policy=TERMINATE \
-  --restart-on-failure
-```
+!git clone -b feature/kfolds https://github.com/sanchezhs/med-seg-tfm
 
-### Conectarte a la VM y montar los buckets con gcsfuse
+!pip install -r med-seg-tfm/requirements.txt
 
-gcloud compute ssh tfm-vm --zone=us-west2-c
+!gsutil -m cp -r gs://tfm-training-datasets/datasets.zip med-seg-tfm/
 
-- Una vez dentro de la VM:
-    1. Instalar gcsfuse:
-```bash
-sudo apt-get update
-sudo apt-get install -y gcsfuse
-```
+!unzip med-seg-tfm/datasets.zip -d med-seg-tfm/
 
-b) Crear puntos de montaje y montar buckets:
-
-sudo mkdir -p /mnt/datasets
-sudo mkdir -p /mnt/results
-
-gcsfuse tfm-training-datasets /mnt/datasets
-gcsfuse tfm-training-results /mnt/results
-
-    Puedes verificar con ls /mnt/datasets
-
-🛠️ 3. (Re)ejecutar tu contenedor con montajes de volumen
-
-Dentro de la VM, para asegurarte de que tu contenedor usa los buckets montados:
-
-docker run -it --rm --gpus all \
-  europe-southwest1-docker.pkg.dev/snappy-surf-392910/tfm-med-seg-docker/train-nets:v1
-
+!cd med-seg-tfm && python main.py A-J train
