@@ -1,6 +1,5 @@
-import os
-import json
 from enum import Enum, IntEnum
+from pathlib import Path
 from typing import Optional, Tuple, Union
 
 from pydantic import BaseModel, Field, model_validator
@@ -12,7 +11,7 @@ ALL_STEPS = ["preprocess", "train", "predict", "evaluate"]
 
 # Example default values for GCS bucket and destination path
 DEFAULT_BUCKET = "tfm-training-results"
-DEFAULT_DEST_PATH = "results/archive.tar.gz"
+DEFAULT_DEST_PATH = Path("results")
 
 
 class Net(str, Enum):
@@ -59,8 +58,8 @@ class EnvConfig(BaseModel):
 class PreprocessConfig(BaseModel):
     """Configuration for preprocessing data."""
     net: Net
-    src_path: str
-    dst_path: str
+    src_path: Path
+    dst_path: Path
     super_scale: SuperScale
     resize: Tuple[int, int] = Field(..., description="Resize dimensions (width,height)")
     strategy: Strategy
@@ -72,14 +71,14 @@ class PreprocessConfig(BaseModel):
 
     def write_config(self) -> None:
         """Write the configuration to a JSON file."""
-        with open(os.path.join(self.dst_path, "preprocess_params.json"), "w") as f:
-            json.dump(self.model_dump(), f, indent=4)
+        with open(self.dst_path / "preprocess_params.json", "w") as f:
+            f.write(self.model_dump_json(indent=4))
 
 class TrainConfig(BaseModel):
     """Configuration for training a model."""
     net: Net
-    dst_path: str
-    src_path: str
+    dst_path: Path
+    src_path: Path
     batch_size: int = 8
     epochs: int = 10
     learning_rate: float = 1e-3
@@ -90,35 +89,34 @@ class TrainConfig(BaseModel):
 
     def write_config(self) -> None:
         """Write the training configuration to a JSON file."""
-        with open(os.path.join(self.dst_path, "train_params.json"), "w") as f:
-            json.dump(self.model_dump(), f, indent=4)
+        with open(self.dst_path / "train_params.json", "w") as f:
+            f.write(self.model_dump_json(indent=4))
 
 
 class EvaluateConfig(BaseModel):
     """Configuration for evaluating a trained model."""
     net: Net
-    model_path: str
-    src_path: str
-    pred_path: str
-    gt_path: str
+    model_path: Path
+    src_path: Path
+    pred_path: Path
+    gt_path: Path
 
     def write_config(self) -> None:
         """Write the evaluation configuration to a JSON file."""
-        with open(os.path.join(self.src_path, "evaluate_params.json"), "w") as f:
-            json.dump(self.model_dump(), f, indent=4)
-
+        with open(self.src_path / "evaluate_params.json", "w") as f:
+            f.write(self.model_dump_json(indent=4))
 
 class PredictConfig(BaseModel):
     """Configuration for making predictions."""
     net: Net
-    model_path: str
-    src_path: str
-    dst_path: str
+    model_path: Path
+    src_path: Path
+    dst_path: Path
 
     def write_config(self) -> None:
         """Write the prediction configuration to a JSON file."""
-        with open(os.path.join(self.dst_path, "predict_params.json"), "w") as f:
-            json.dump(self.model_dump(), f, indent=4)
+        with open(self.dst_path / "predict_params.json", "w") as f:
+            f.write(self.model_dump_json(indent=4))
 
 class PipelineConfig(BaseModel):
     """Configuration for the entire pipeline."""

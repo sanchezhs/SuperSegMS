@@ -1,7 +1,6 @@
 import json
-import os
 import time
-from typing import Literal
+from pathlib import Path
 
 import cv2
 import matplotlib.pyplot as plt
@@ -15,46 +14,46 @@ from sklearn.model_selection import GroupKFold
 from torch.utils.data import ConcatDataset, DataLoader, Dataset, Subset
 from tqdm import tqdm
 
-from utils.send_msg import send_whatsapp_message
 from schemas.pipeline_schemas import (
     EvaluateConfig,
     PredictConfig,
     SegmentationMetrics,
     TrainConfig,
 )
+from utils.send_msg import send_whatsapp_message
 
 
 class MRIDataset(Dataset):
-    def __init__(self, img_dir: str, mask_dir: str = None):
-        self.img_dir = img_dir
-        self.mask_dir = mask_dir
+    def __init__(self, img_dir: Path, mask_dir: Path = None):
+        self.img_dir = Path(img_dir)
+        self.mask_dir = Path(mask_dir) if mask_dir else None
         self.check_directories()
-        self.images = sorted(os.listdir(img_dir))
-        self.masks = sorted(os.listdir(mask_dir)) if mask_dir else None
+        self.images = sorted(self.img_dir.iterdir())
+        self.masks = sorted(self.mask_dir.iterdir()) if mask_dir else None
 
     def check_directories(self):
-        if not os.path.exists(self.img_dir):
+        if not self.img_dir.exists():
             raise FileNotFoundError(f"Image directory {self.img_dir} does not exist.")
-        if self.mask_dir and not os.path.exists(self.mask_dir):
+        if self.mask_dir and not self.mask_dir.exists():
             raise FileNotFoundError(f"Mask directory {self.mask_dir} does not exist.")
 
     def __len__(self) -> int:
         return len(self.images)
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor | None, str]:
-        img_path = os.path.join(self.img_dir, self.images[idx])
-        img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255.0
+        img_path = self.images[idx]
+        img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255.0
         img = torch.tensor(img).unsqueeze(0)
 
         if self.mask_dir:
-            mask_path = os.path.join(self.mask_dir, self.masks[idx])
+            mask_path = self.masks[idx]
             mask = (
-                cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255.0
+                cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255.0
             )
             mask = torch.tensor(mask).unsqueeze(0)
-            return img, mask, self.images[idx]
+            return img, mask, img_path.name
 
-        return img, self.images[idx]
+        return img, img_path.name
 
 class BCEDiceLoss(nn.Module):
     def __init__(self):
@@ -108,23 +107,22 @@ class UNet:
             self.use_kfold = config.use_kfold
             self.kfold_n_splits = config.kfold_n_splits
             self.kfold_seed = config.kfold_seed
-            self.model_name = self.dst_path.split("/")[-1]
-            self.model_path = os.path.join(self.dst_path, "models", f"{self.model_name}.pth")
+            self.model_name = self.dst_path.name
+            self.model_path = self.dst_path / "models" / f"{self.model_name}.pth"
 
-            os.makedirs(self.dst_path, exist_ok=True)
-            os.makedirs(os.path.join(self.dst_path, "models"), exist_ok=True)
+            (self.dst_path / "models").mkdir(parents=True, exist_ok=True)
 
             self.train_loader = DataLoader(
                 MRIDataset(
-                    os.path.join(self.src_path, "images", "train"),
-                    os.path.join(self.src_path, "labels", "train"),
+                    self.src_path / "images" / "train",
+                    self.src_path / "labels" / "train",
                 ),
                 num_workers=4,
             )
             self.val_loader = DataLoader(
                 MRIDataset(
-                    os.path.join(self.src_path, "images", "val"),
-                    os.path.join(self.src_path, "labels", "val"),
+                    self.src_path / "images" / "val",
+                    self.src_path / "labels" / "val",
                 ),
                 num_workers=4,
             )
@@ -132,16 +130,16 @@ class UNet:
             if not self.use_kfold:
                 self.train_loader = DataLoader(
                     MRIDataset(
-                        os.path.join(self.src_path, "images", "train"),
-                        os.path.join(self.src_path, "labels", "train"),
+                        self.src_path / "images" / "train",
+                        self.src_path / "labels" / "train",
                     ),
                     batch_size=self.batch_size,
                     num_workers=4,
                 )
                 self.val_loader = DataLoader(
                     MRIDataset(
-                        os.path.join(self.src_path, "images", "val"),
-                        os.path.join(self.src_path, "labels", "val"),
+                        self.src_path / "images" / "val",
+                        self.src_path / "labels" / "val",
                     ),
                     batch_size=self.batch_size,
                     num_workers=4,
@@ -151,7 +149,6 @@ class UNet:
                 encoder_name=self.encoder_name, in_channels=1, classes=1, activation=None
             ).to(self.device)
 
-            # self.criterion = nn.BCEWithLogitsLoss()
             self.criterion = BCEDiceLoss()
             self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
             self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
@@ -167,7 +164,7 @@ class UNet:
             self.pred_path = config.pred_path
             self.gt_path = config.gt_path
 
-            if not os.path.exists(self.pred_path):
+            if not self.pred_path.exists():
                 raise FileNotFoundError(
                     f"Prediction directory {self.pred_path} does not exist. Did you run the prediction step?"
                 )
@@ -179,8 +176,8 @@ class UNet:
 
             self.val_loader = DataLoader(
                 MRIDataset(
-                    os.path.join(self.src_path, "images", "val"),
-                    os.path.join(self.src_path, "labels", "val"),
+                    self.src_path / "images" / "val",
+                    self.src_path / "labels" / "val",
                 )
             )
 
@@ -193,7 +190,7 @@ class UNet:
             ).to(self.device)
             self._load_model()
             self.test_loader = DataLoader(
-                MRIDataset(os.path.join(self.src_path, "images", "test"))
+                MRIDataset(self.src_path / "images" / "test"),
             )
         else:
             raise ValueError(f"Invalid configuration type: {type(config)}. Expected TrainConfig, EvaluateConfig, or PredictConfig.")
@@ -211,15 +208,15 @@ class UNet:
             splits = ["train", "val", "test"]
             datasets = [
                 MRIDataset(
-                    os.path.join(self.src_path, "images", s),
-                    os.path.join(self.src_path, "labels", s)
+                    self.src_path / "images" / s,
+                    self.src_path / "labels" / s,
                 ) for s in splits
             ]
             # build group labels from filenames (assumes IDs before underscore)
             group_labels = []
             for ds in datasets:
                 for img_name in ds.images:
-                    pid = img_name.split('_')[0]
+                    pid = img_name.name.split('_')[0]
                     group_labels.append(pid)
 
             dataset = ConcatDataset(datasets)
@@ -306,12 +303,11 @@ class UNet:
         instance.learning_rate = config.learning_rate
         instance.use_kfold = False  
 
-        base = os.path.basename(config.dst_path.rstrip('/'))
-        instance.dst_path = os.path.join(config.dst_path, f"{base}_fold_{fold}")
+        base = config.dst_path.name
+        instance.dst_path = config.dst_path / f"{base}_fold_{fold}"
         instance.model_name = f"{base}_fold_{fold}"
-        instance.model_path = os.path.join(instance.dst_path, "models", f"{instance.model_name}.pth")
-        os.makedirs(instance.dst_path, exist_ok=True)
-        os.makedirs(os.path.join(instance.dst_path, "models"), exist_ok=True)
+        instance.model_path = instance.dst_path / "models" / f"{instance.model_name}.pth"
+        (instance.dst_path / "models").mkdir(parents=True, exist_ok=True)
 
         instance.train_loader = train_loader
         instance.val_loader = val_loader
@@ -355,7 +351,7 @@ class UNet:
         logger.info(f"Evaluating model {self.model_path}")
 
         self.model.load_state_dict(
-            torch.load(self.model_path, map_location=self.device)
+            torch.load(str(self.model_path), map_location=self.device)
         )
         self.model.eval()
         metrics_list = []
@@ -400,19 +396,21 @@ class UNet:
         """
         logger.info(f"Predicting images in {self.src_path} and saving to {self.dst_path}")
         self.model.load_state_dict(
-            torch.load(self.model_path, map_location=self.device)
+            torch.load(str(self.model_path), map_location=self.device)
         )
         self.model.eval()
 
-        os.makedirs(os.path.join(self.dst_path), exist_ok=True)
+        if not self.dst_path.exists():
+            logger.info(f"Creating destination directory: {self.dst_path}")
+            self.dst_path.mkdir(parents=True, exist_ok=True)
 
         for i, (image, image_name) in enumerate(tqdm(self.test_loader, desc="Predicting")):
             image = image.to(self.device)
             with torch.no_grad():
                 pred_mask = torch.sigmoid(self.model(image)).cpu().numpy().squeeze()
             pred_img = ((pred_mask > 0.5) * 255).astype(np.uint8)
-            output_path = os.path.join(self.dst_path, image_name[0])
-            cv2.imwrite(output_path, pred_img)
+            output_path = self.dst_path / f"pred_{i}_{image_name[0]}"
+            cv2.imwrite(str(output_path), pred_img)
 
         logger.info(f"Predictions saved in test directory: {self.dst_path}")
 
@@ -420,7 +418,7 @@ class UNet:
     def _load_model(self) -> None:
         """Load pre-trained model"""
         self.model.load_state_dict(
-            torch.load(self.model_path, map_location=self.device)
+            torch.load(str(self.model_path), map_location=self.device)
         )
         self.model.eval()
 
@@ -464,12 +462,12 @@ class UNet:
             format (str): The format to save the metrics in ("json" or "csv").
         """
         if format == "csv":
-            with open(os.path.join(self.pred_path, "metrics.csv"), "w") as f:
+            with open(self.pred_path / "metrics.csv", "w") as f:
                 f.write("Metric,Value\n")
                 for key, value in metrics.items():
                     f.write(f"{key},{value}\n")
         else:
-            with open(os.path.join(self.pred_path, "metrics.json"), "w") as f:
+            with open(self.pred_path / "metrics.json", "w") as f:
                 json.dump(metrics.model_dump(), f, indent=4)
 
         logger.info(f"Metrics saved in {self.pred_path}/metrics.{format}")
@@ -489,7 +487,7 @@ class UNet:
         plt.title(f'Training and Validation Loss Curve - {title}')
         plt.legend()
         plt.grid()
-        plt.savefig(os.path.join(self.dst_path, f"loss_curve_{title}.png"))
+        plt.savefig(self.dst_path / f"loss_curve_{title}.png")
         logger.info(f"Loss curve saved at {self.dst_path}/loss_curve.png")
 
     def _infer_and_time(self, image: torch.Tensor) -> tuple[np.ndarray, float]:
@@ -528,7 +526,7 @@ class UNet:
         Args:
             metrics_dict (dict): Dictionary containing mean and std for each metric.
         """
-        summary_path = os.path.join(self.dst_path, "cv_summary.json")
+        summary_path = self.dst_path / "cv_summary.json"
         with open(summary_path, "w") as f:
             json.dump(metrics_dict, f, indent=4)
         logger.info(f"Cross-validation summary saved at {summary_path}")

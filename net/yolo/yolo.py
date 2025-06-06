@@ -2,6 +2,7 @@ import json
 import os
 import shutil
 import time
+from pathlib import Path
 from typing import Optional
 
 import cv2
@@ -35,7 +36,7 @@ class YOLO:
         self.config = config
         self.src_path = config.src_path
 
-        if not os.path.exists(self.src_path):
+        if not self.src_path.exists():
             raise FileNotFoundError(
                 f"Source path {self.src_path} does not exist. Did you run the preprocess step?"
             )
@@ -47,17 +48,17 @@ class YOLO:
             self.use_kfold = getattr(config, "use_kfold", False)
             self.kfold_n_splits = getattr(config, "kfold_n_splits", 5)
             self.kfold_seed = getattr(config, "kfold_seed", 42)
-            self.yaml_path = os.path.join(self.dst_path, "data.yaml")
-            self.model_path = "./net/yolo/models/yolo11m-seg.pt"
-            os.makedirs(self.dst_path, exist_ok=True)
+            self.yaml_path = self.dst_path / "data.yaml"
+            self.model_path = Path("./net/yolo/models/yolo11m-seg.pt")
+            self.dst_path.mkdir(parents=True, exist_ok=True)
             if not self.use_kfold:
                 self._create_yaml()
 
         elif isinstance(config, PredictConfig):
             self.dst_path = config.dst_path
             self.model_path = config.model_path
-            self.yaml_path = os.path.join(self.dst_path, "data.yaml")
-            os.makedirs(self.dst_path, exist_ok=True)
+            self.yaml_path = self.dst_path / "data.yaml"
+            self.dst_path.mkdir(parents=True, exist_ok=True)
             self._create_yaml()
 
         elif isinstance(config, EvaluateConfig):
@@ -82,16 +83,16 @@ class YOLO:
             # We use all images and masks from train, val, and test splits
             # for the k-fold cross-validation.
             for split in ["train", "val", "test"]:
-                img_dir = os.path.join(self.src_path, "images", split)
-                mask_dir = os.path.join(self.src_path, "labels", split)
-                for fname in sorted(os.listdir(img_dir)):
+                img_dir = self.src_path / "images" / split
+                mask_dir = self.src_path / "labels" / split
+                for fname in sorted(img_dir.iterdir()):
                     if fname.lower().endswith((".png", ".jpg", ".jpeg")):
-                        base = os.path.splitext(fname)[0]
+                        base = fname.stem
                         mask_name = f"{base}.txt"
-                        img_path = os.path.join(img_dir, fname)
-                        txt_mask_path = os.path.join(mask_dir, mask_name)
-                        img_mask_path = os.path.join(mask_dir, f"{base}.png")
-                        if not os.path.exists(txt_mask_path):
+                        img_path = img_dir / fname
+                        txt_mask_path = mask_dir / mask_name
+                        img_mask_path = mask_dir / f"{base}.png"
+                        if not txt_mask_path.exists():
                             raise FileNotFoundError(f"Missing mask for {img_path}")
                         group_id = base.split('_')[0]  # e.g., "P11"
                         image_mask_group_quads.append((img_path, txt_mask_path, img_mask_path, group_id))
@@ -108,33 +109,33 @@ class YOLO:
                 print(f"  Train patients: {len(train_patients)}, Val patients: {len(val_patients)}")
                 print(f"  Train images: {len(train_idx)}, Val images: {len(val_idx)}")
                 
-                fold_dir = os.path.join(self.dst_path, f"fold_{fold}")
+                fold_dir = self.dst_path / f"fold_{fold}"
                 for split in ["train", "val"]:
-                    os.makedirs(os.path.join(fold_dir, "images", split), exist_ok=True)
-                    os.makedirs(os.path.join(fold_dir, "labels", split), exist_ok=True)
+                    (fold_dir / "images" / split).mkdir(parents=True, exist_ok=True)
+                    (fold_dir / "labels" / split).mkdir(parents=True, exist_ok=True)
 
                 for idx in train_idx:
-                    shutil.copy2(all_img_paths[idx], os.path.join(fold_dir, "images/train"))
-                    shutil.copy2(all_txt_mask_paths[idx], os.path.join(fold_dir, "labels/train"))
-                    shutil.copy2(all_img_mask_paths[idx], os.path.join(fold_dir, "labels/train"))
+                    shutil.copy2(all_img_paths[idx], fold_dir / "images/train")
+                    shutil.copy2(all_txt_mask_paths[idx], fold_dir / "labels/train")
+                    shutil.copy2(all_img_mask_paths[idx], fold_dir / "labels/train")
                 for idx in val_idx:
                     img_path = all_img_paths[idx]
                     txt_mask_path = all_txt_mask_paths[idx]
                     img_mask_path = all_img_mask_paths[idx]
-                    shutil.copy2(img_path, os.path.join(fold_dir, "images", "val", os.path.basename(img_path)))
-                    shutil.copy2(txt_mask_path, os.path.join(fold_dir, "labels", "val", os.path.basename(txt_mask_path)))
-                    shutil.copy2(img_mask_path, os.path.join(fold_dir, "labels", "val", os.path.basename(img_mask_path)))
+                    shutil.copy2(img_path, fold_dir / "images" / "val", img_path.name)
+                    shutil.copy2(txt_mask_path, fold_dir / "labels" / "val", txt_mask_path.name)
+                    shutil.copy2(img_mask_path, fold_dir / "labels" / "val", img_mask_path.name)
 
                 # write fold-specific YAML
                 data_yaml = {
-                    "path": fold_dir,
+                    "path": str(fold_dir),
                     "train": "images/train",
                     "val": "images/val",
                     "nc": 1,
                     "names": ["lesion"],
                     "task": "segment",
                 }
-                fold_yaml = os.path.join(fold_dir, "data.yaml")
+                fold_yaml = fold_dir / "data.yaml"
                 with open(fold_yaml, "w") as f:
                     yaml.dump(data_yaml, f, default_flow_style=False)
                 # train model
@@ -154,22 +155,22 @@ class YOLO:
                 eval_cfg = EvaluateConfig(
                     net=Net.YOLO,
                     src_path=fold_dir,
-                    pred_path=os.path.join(fold_dir, "predictions"),
-                    model_path=os.path.join(fold_dir, "train", "weights", "best.pt"),
-                    gt_path=os.path.join(fold_dir, "labels", "val"),
+                    pred_path=fold_dir / "predictions",
+                    model_path=fold_dir / "train" / "weights" / "best.pt",
+                    gt_path=fold_dir / "labels" / "val",
                 )
                 evaluator = YOLO(eval_cfg)
 
                 # predict on validation set
                 evaluator.predict(
-                    image_dir=os.path.join(fold_dir, "images", "val"),
-                    pred_dir=os.path.join(fold_dir, "predictions"),
+                    image_dir=fold_dir / "images" / "val",
+                    pred_dir=fold_dir / "predictions",
                 )
                 
                 # evaluate predictions
                 evaluator.evaluate()
                 # read per-fold metrics
-                with open(os.path.join(fold_dir, "predictions", "metrics.json"), "r") as mf:
+                with open(fold_dir / "predictions" / "metrics.json", "r") as mf:
                     metrics = json.load(mf)
 
                 fold_metrics.append(metrics)
@@ -187,10 +188,10 @@ class YOLO:
                 }
                 for k in fold_metrics[0]
             }
-            with open(os.path.join(self.dst_path, "cv_summary.json"), "w") as sf:
+            with open(self.dst_path / "cv_summary.json", "w") as sf:
                 json.dump(summary, sf, indent=4)
             logger.success(
-                f"Cross-validation summary saved to {os.path.join(self.dst_path, 'cv_summary.json')}"
+                f"Cross-validation summary saved to {self.dst_path / 'cv_summary.json'}"
             )
 
             send_whatsapp_message(
@@ -214,7 +215,7 @@ class YOLO:
                 verbose=True,
             )
 
-    def predict(self, image_dir: Optional[str] = None, pred_dir: Optional[str] = None):
+    def predict(self, image_dir: Optional[Path] = None, pred_dir: Optional[Path] = None):
         """Run inference on images using the trained YOLO model.
         Args:
             image_dir (str, optional): Directory containing images to predict. Defaults to None.
@@ -223,31 +224,30 @@ class YOLO:
         model = uYOLO(self.model_path)
 
         if image_dir is None:
-            image_dir = os.path.join(self.src_path, "images", "test")
+            image_dir = self.src_path / "images" / "test"
 
         if pred_dir is None:
-            pred_dir = os.path.join(self.dst_path)
+            pred_dir = self.dst_path
 
         if os.path.exists(pred_dir):
             logger.info(f"Prediction folder already exists: {pred_dir}. Removing it.")
             shutil.rmtree(pred_dir)
 
-        os.makedirs(pred_dir, exist_ok=True)
+        pred_dir.mkdir(parents=True, exist_ok=True)
 
         image_files = sorted(
             [
                 f
-                for f in os.listdir(image_dir)
-                if f.lower().endswith((".png", ".jpg", ".jpeg"))
+                for f in image_dir.iterdir()
+                if f.suffix.lower() in (".png", ".jpg", ".jpeg")
             ]
         )
         inference_times = []
 
         for img_file in image_files:
-            image_path = os.path.join(image_dir, img_file)
             start = time.perf_counter()
             model.predict(
-                source=image_path,
+                source=img_file,
                 project=pred_dir,
                 name=".",  # disables subfolder creation
                 save_txt=True,
@@ -259,10 +259,10 @@ class YOLO:
             elapsed = time.perf_counter() - start
             inference_times.append(elapsed)
 
-        with open(os.path.join(f"{pred_dir}", "inference_times.json"), "w") as f:
+        with open(pred_dir / "inference_times.json", "w") as f:
             json.dump(inference_times, f, indent=4)
 
-        logger.success(f"Inference times saved to {os.path.join(pred_dir, 'inference_times.json')}")
+        logger.success(f"Inference times saved to {pred_dir / 'inference_times.json'}")
 
         self._draw_predictions(pred_dir=pred_dir, image_dir=image_dir)
 
@@ -270,7 +270,7 @@ class YOLO:
         """Evaluate the YOLO predictions using the ground truth masks."""
         logger.info(f"Evaluating YOLO predictions in folder {self.pred_path}")
 
-        times_path = os.path.join(self.pred_path, "inference_times.json")
+        times_path = self.pred_path / "inference_times.json"
         if not os.path.exists(times_path):
             raise FileNotFoundError(
                 f"Times path {times_path} does not exist. Did you run the predict step?"
@@ -282,13 +282,13 @@ class YOLO:
                 f"Prediction path {self.pred_path} does not exist. Did you run the predict step?"
             )
 
-        mask_dir = os.path.join(self.pred_path, "masks")
-        image_names = sorted(os.listdir(mask_dir))
+        mask_dir = self.pred_path / "masks"
+        image_names = sorted(mask_dir.iterdir())
         metrics = []
 
         for name in image_names:
-            pred_mask = cv2.imread(os.path.join(mask_dir, name), cv2.IMREAD_GRAYSCALE)
-            gt_mask = cv2.imread(os.path.join(self.gt_path, name), cv2.IMREAD_GRAYSCALE)
+            pred_mask = cv2.imread(str(mask_dir / name), cv2.IMREAD_GRAYSCALE)
+            gt_mask = cv2.imread(str(self.gt_path / name), cv2.IMREAD_GRAYSCALE)
 
             if pred_mask is None or gt_mask is None:
                 logger.warning(
@@ -350,7 +350,7 @@ class YOLO:
             logger.info(f"{k}: {v:.4f}")
 
         # Save metrics to a JSON file
-        metrics_path = os.path.join(self.pred_path, "metrics.json")
+        metrics_path = self.pred_path / "metrics.json"
         with open(metrics_path, "w") as f:
             json.dump(avg_metrics, f, indent=4)
         logger.success(f"Metrics saved to {metrics_path}")
@@ -365,7 +365,7 @@ class YOLO:
         class names, and task type.
         """
         data_yaml = {
-            "path": os.path.abspath(self.src_path),
+            "path": str(self.src_path),
             "train": "images/train",
             "val": "images/val",
             "nc": 1,
@@ -375,31 +375,31 @@ class YOLO:
         with open(self.yaml_path, "w") as f:
             yaml.dump(data_yaml, f, default_flow_style=False)
 
-    def _draw_predictions(self, pred_dir: str, image_dir: str) -> None:
+    def _draw_predictions(self, pred_dir: Path, image_dir: Path) -> None:
         """Draw predictions on images and save them as masks.
         Args:
             pred_dir (str): Directory where predictions are stored.
             image_dir (str): Directory containing the images to draw predictions on.
         """
-        output_dir = os.path.join(pred_dir, "masks")
-        os.makedirs(output_dir, exist_ok=True)
+        output_dir = pred_dir / "masks"
+        output_dir.mkdir(parents=True, exist_ok=True)
 
-        prediction_dir = os.path.join(pred_dir, "labels")
-        if not os.path.exists(prediction_dir):
+        prediction_dir = pred_dir / "labels"
+        if not prediction_dir.exists():
             raise FileNotFoundError(
                 f"Prediction directory {prediction_dir} does not exist. Did you run the predict step?"
             )
 
         image_files = sorted(
-            [f for f in os.listdir(image_dir) if f.endswith((".png", ".jpg"))]
+            [f for f in image_dir.iterdir() if f.suffix.lower() in ('.png', '.jpg', '.jpeg')]
         )
 
         for image_file in image_files:
-            base_name = os.path.splitext(image_file)[0]
-            prediction_path = os.path.join(prediction_dir, f"{base_name}.txt")
-            image_path = os.path.join(image_dir, image_file)
+            base_name = image_file.stem
+            prediction_path = prediction_dir / f"{base_name}.txt"
+            image_path = image_dir / image_file.name
 
-            img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+            img = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
             if img is None:
                 logger.warning(f"Could not load image {image_path}")
                 continue
@@ -408,8 +408,8 @@ class YOLO:
             img = cv2.resize(img, img_size[:2])
             mask = np.zeros_like(img)
 
-            if not os.path.exists(prediction_path):
-                logger.warning(f"Prediction file not found for {image_file}. Saving empty mask.")
+            if not prediction_path.exists():
+                logger.warning(f"Prediction file not found for {image_file.name}. Saving empty mask.")
             else:
                 with open(prediction_path, "r") as f:
                     lines = f.readlines()
@@ -417,7 +417,7 @@ class YOLO:
                 if not lines:
                     # If the prediction file is empty, log a warning and save an empty mask
                     # we want to save an empty mask to avoid a bias in evaluation
-                    logger.info(f"No predictions for {image_file}. Saving empty mask.")
+                    logger.info(f"No predictions for {image_file.name}. Saving empty mask.")
                 else:
                     for line in lines:
                         values = list(map(float, line.split()))
@@ -432,8 +432,9 @@ class YOLO:
                                 points = points.astype(np.int32)
                                 cv2.fillPoly(mask, [points], color=255)
 
-            cv2.imwrite(os.path.join(output_dir, f"{base_name}.png"), mask)
-            logger.info(f"Saved: {os.path.join(output_dir, f'{base_name}.png')}")
+            output_path = output_dir / f"{base_name}.png"
+            cv2.imwrite(str(output_path), mask)
+            logger.info(f"Saved: {output_path}")
 
         logger.success("Predictions drawn and saved correctly.")
 
@@ -442,8 +443,14 @@ class YOLO:
         Returns:
             tuple: (height, width, channels) of the first image in the training set.
         """
-        path = self.src_path + "/images/train"
-        img = os.listdir(path)
-        img = os.path.join(path, img[0])
-        img = cv2.imread(img)
+        train_path = self.src_path / "images" / "train"
+        image_files = list(train_path.iterdir())
+        if not image_files:
+            raise FileNotFoundError(f"No images found in {train_path}")
+        
+        first_image = image_files[0]
+        img = cv2.imread(str(first_image))
+        if img is None:
+            raise ValueError(f"Could not load image {first_image}")
+        
         return img.shape  # (height, width, channels)
