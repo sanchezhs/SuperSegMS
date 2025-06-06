@@ -162,6 +162,9 @@ def preprocess(config: PreprocessConfig) -> None:
     
     logger.info(f"Starting preprocessing with config: {config}")
 
+    if not os.path.exists(config.src_path):
+        raise FileNotFoundError(f"Source path {config.src_path} does not exist.")
+
     pipeline = PreprocessingPipeline(
         src_train_root=Path(config.src_path) / "train",
         dst_root=Path(config.dst_path),
