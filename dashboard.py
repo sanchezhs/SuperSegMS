@@ -19,6 +19,10 @@ def get_images(pred_path, ext=".png"):
         return []
     return sorted([f for f in os.listdir(pred_path) if f.endswith(ext)])
 
+def get_common_images(*paths):
+    sets = [set(get_images(p)) for p in paths if os.path.exists(p)]
+    return sorted(set.intersection(*sets)) if sets else []
+
 def get_prediction_image_path(base_path, exp, subdirs, img_name):
     path = os.path.join(base_path, exp, *subdirs, img_name)
     return path if os.path.exists(path) else None
@@ -127,14 +131,25 @@ selected_exps = {
     model: st.sidebar.selectbox(f"Modelo {model}", experiments[model], key=f"exp_{model}")
     for model in MODELS
 }
-main_model = "U-Net"
-main_pred_path = os.path.join(
-    MODELS[main_model]["base_path"],
-    selected_exps[main_model],
-    *MODELS[main_model]["pred_subdirs"]
-)
-available_images = get_images(main_pred_path)
-available_images = get_images(main_pred_path)
+pred_paths = {
+    model: os.path.join(
+        MODELS[model]["base_path"],
+        selected_exps[model],
+        *MODELS[model]["pred_subdirs"]
+    )
+    for model in MODELS
+}
+available_images = get_common_images(*pred_paths.values())
+
+if not available_images:
+    st.error("No se encontraron imágenes comunes entre los modelos seleccionados.")
+    st.stop()
+
+parsed = [parse_filename(f) for f in available_images]
+
+unet_path = os.path.join(MODELS["U-Net"]["base_path"], selected_exps["U-Net"], *MODELS["U-Net"]["pred_subdirs"])
+yolo_path = os.path.join(MODELS["YOLO"]["base_path"], selected_exps["YOLO"], *MODELS["YOLO"]["pred_subdirs"])
+
 parsed = [parse_filename(f) for f in available_images]
 
 # Construir diccionario: {P1: {T1: [slices]}}
@@ -217,6 +232,7 @@ else:
     for model in ["U-Net", "YOLO"]:
         cfg = MODELS[model]
         pred_dir = os.path.join(cfg["base_path"], selected_exps[model], *cfg["pred_subdirs"])
+        print(f"Procesando {model} en {pred_dir}")
         mask_path = os.path.join(pred_dir, selected_img)
         pred_mask = load_mask_img(mask_path)
         model_metrics[model] = {}
@@ -258,8 +274,8 @@ else:
                 st.markdown(f"**{model}**")
                 m1, m2 = st.columns(2)
                 with m1:
-                    st.metric("IoU", f"{model_metrics[model]['iou']:.3f}")
                     st.metric("Dice", f"{model_metrics[model]['dice_score']:.3f}")
+                    st.metric("IoU", f"{model_metrics[model]['iou']:.3f}")
                 with m2:
                     st.metric("Recall", f"{model_metrics[model]['recall']:.3f}")
                     st.metric("Precision", f"{model_metrics[model]['precision']:.3f}")
