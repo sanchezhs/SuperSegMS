@@ -57,13 +57,32 @@ Formato imágenes: (182, 218, 182) -> (Píxeles, Píxeles, Cantidad de cortes)
 - La YOLO rinde peor que la UNET
 
 Estado | ID  | Red    | Slice Selection  | Super Resolución
-[X]     | A   | UNet   | BASE             | Sin SR 
-[X]     | B   | YOLO   | BASE             | Sin SR
-[X]     | C   | UNet   | ALL              | Sin SR 
-[X]     | D   | UNet   | ALL              | x2
-[X]     | E   | YOLO   | ALL              | Sin SR
-[X]     | F   | YOLO   | ALL              | x2
-[X]     | G   | UNet   | Top 5 slices     | Sin SR
-[X]     | H   | UNet   | Top 5 slices     | x2
-[X]     | I   | YOLO   | Top 5 slices     | Sin SR
-[X]     | J   | YOLO   | Top 5 slices     | x2
+[X]     | A   | UNet   | BASE            | Sin SR gcloud
+[]     | B   | YOLO   | BASE             | Sin SR gcloud
+[X]     | C   | UNet   | LESION           | Sin SR local
+[X]     | E   | YOLO   | LESION           | Sin SR local
+[X]     | F   | YOLO   | LESION           | x2     gcloud 
+[X]    | G   | UNet   | Top 5 slices     | Sin SR
+[X]    | H   | UNet   | Top 5 slices     | x2
+[X]    | I   | YOLO   | Top 5 slices     | Sin SR
+[]    | J   | YOLO   | Top 5 slices     | x2
+
+# GCLOUD
+## Buckets
+- Crear bucket para datasets: `gs://tfm-training-datasets/`
+    - Copiar los archivos: `gcloud storage cp --recursive ./datasets gs://tfm-training-datasets/datasets/`
+- Crear bucket para resultados: `gs://tfm-training-results/`
+
+## Colab
+- Crear .env
+- Copiar gcs_api.json
+
+!git clone -b feature/kfolds https://github.com/sanchezhs/med-seg-tfm
+
+!pip install -r med-seg-tfm/requirements.txt
+
+!gsutil -m cp -r gs://tfm-training-datasets/datasets.zip med-seg-tfm/
+
+!unzip med-seg-tfm/datasets.zip -d med-seg-tfm/
+
+!cd med-seg-tfm && python main.py A-J train
