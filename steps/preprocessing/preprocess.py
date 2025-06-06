@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import sys
 
 import nibabel as nib
 import numpy as np
@@ -125,8 +126,8 @@ def preprocess(config: PreprocessConfig) -> None:
     """
 
     if not os.path.exists(config.src_path):
-        logger.info(f"Source path {config.src_path} does not exist. Creating it.")
-        os.makedirs(config.src_path, exist_ok=True)
+        logger.error(f"Source path {config.src_path} does not exist. Exiting.")
+        sys.exit(1)
 
     splitter = RandomPatientSplitter(train_frac=config.split, seed=config.seed)
 
