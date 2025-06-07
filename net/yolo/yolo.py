@@ -12,7 +12,7 @@ from loguru import logger
 from sklearn.model_selection import GroupKFold
 from ultralytics import YOLO as uYOLO
 
-from schemas.pipeline_schemas import EvaluateConfig, Net, PredictConfig, TrainConfig
+from schemas.pipeline_schemas import EvaluateConfig, Net, PredictConfig, SegmentationMetrics, TrainConfig
 from utils.send_msg import send_whatsapp_message
 
 
@@ -86,10 +86,10 @@ class YOLO:
                 img_dir = self.src_path / "images" / split
                 mask_dir = self.src_path / "labels" / split
                 for fname in sorted(img_dir.iterdir()):
-                    if fname.lower().endswith((".png", ".jpg", ".jpeg")):
+                    if fname.name.lower().endswith((".png", ".jpg", ".jpeg")):
                         base = fname.stem
                         mask_name = f"{base}.txt"
-                        img_path = img_dir / fname
+                        img_path = img_dir / f"{base}.png"
                         txt_mask_path = mask_dir / mask_name
                         img_mask_path = mask_dir / f"{base}.png"
                         if not txt_mask_path.exists():
@@ -122,9 +122,9 @@ class YOLO:
                     img_path = all_img_paths[idx]
                     txt_mask_path = all_txt_mask_paths[idx]
                     img_mask_path = all_img_mask_paths[idx]
-                    shutil.copy2(img_path, fold_dir / "images" / "val", img_path.name)
-                    shutil.copy2(txt_mask_path, fold_dir / "labels" / "val", txt_mask_path.name)
-                    shutil.copy2(img_mask_path, fold_dir / "labels" / "val", img_mask_path.name)
+                    shutil.copy2(img_path, fold_dir / "images" / "val" / img_path.name)
+                    shutil.copy2(txt_mask_path, fold_dir / "labels" / "val" / txt_mask_path.name)
+                    shutil.copy2(img_mask_path, fold_dir / "labels" / "val" / img_mask_path.name)
 
                 # write fold-specific YAML
                 data_yaml = {
@@ -266,98 +266,91 @@ class YOLO:
 
         self._draw_predictions(pred_dir=pred_dir, image_dir=image_dir)
 
-    def evaluate(self) -> None:
-        """Evaluate the YOLO predictions using the ground truth masks."""
-        logger.info(f"Evaluating YOLO predictions in folder {self.pred_path}")
+    def evaluate(self) -> dict:
+            """
+            Evaluate the YOLO predictions using the ground truth masks on a per-image basis.
+            Computes IoU, Dice score, precision, recall, F1 score, specificity, and inference time for each image,
+            then returns the average of each metric across all images. Results are saved in JSON format.
+            """
+            logger.info(f"Evaluating YOLO predictions in folder {self.pred_path}")
 
-        times_path = self.pred_path / "inference_times.json"
-        if not os.path.exists(times_path):
-            raise FileNotFoundError(
-                f"Times path {times_path} does not exist. Did you run the predict step?"
-            )
+            # Load inference times
+            times_path = self.pred_path / "inference_times.json"
+            with open(times_path, 'r') as f:
+                times = json.load(f)
 
-        print(f"Loading inference times from {times_path}")
-        if not os.path.exists(self.pred_path):
-            raise FileNotFoundError(
-                f"Prediction path {self.pred_path} does not exist. Did you run the predict step?"
-            )
+            mask_dir = self.pred_path / "masks"
+            image_names = sorted(mask_dir.iterdir(), key=lambda x: x.name)
 
-        mask_dir = self.pred_path / "masks"
-        image_names = sorted(mask_dir.iterdir())
-        metrics = []
+            # Lists for per-image metrics
+            iou_list = []
+            dice_list = []
+            precision_list = []
+            recall_list = []
+            f1_list = []
+            specificity_list = []
+            time_list = []
 
-        for name in image_names:
-            pred_mask = cv2.imread(str(mask_dir / name), cv2.IMREAD_GRAYSCALE)
-            gt_mask = cv2.imread(str(self.gt_path / name), cv2.IMREAD_GRAYSCALE)
+            for name in image_names:
+                # Load predicted and ground truth masks
+                pred_mask = cv2.imread(str(mask_dir / name), cv2.IMREAD_GRAYSCALE)
+                gt_mask   = cv2.imread(str(self.gt_path / name), cv2.IMREAD_GRAYSCALE)
+                if pred_mask is None or gt_mask is None:
+                    logger.warning(f"Skipping {name}: missing prediction or ground truth.")
+                    continue
 
-            if pred_mask is None or gt_mask is None:
-                logger.warning(
-                    f"Skipping {name} due to missing prediction or ground truth."
-                )
-                continue
+                # Binarize masks
+                pred_bin = (pred_mask > 127).astype(np.uint8)
+                gt_bin   = (gt_mask   > 127).astype(np.uint8)
 
-            pred_bin = (pred_mask > 127).astype(np.uint8)
-            gt_bin = (gt_mask > 127).astype(np.uint8)
+                # Compute pixel-level confusion
+                tp = np.logical_and(pred_bin, gt_bin).sum()
+                fp = np.logical_and(pred_bin, np.logical_not(gt_bin)).sum()
+                fn = np.logical_and(np.logical_not(pred_bin), gt_bin).sum()
+                tn = np.logical_and(np.logical_not(pred_bin), np.logical_not(gt_bin)).sum()
 
-            tp = np.logical_and(pred_bin, gt_bin).sum()
-            fp = np.logical_and(pred_bin, np.logical_not(gt_bin)).sum()
-            fn = np.logical_and(np.logical_not(pred_bin), gt_bin).sum()
-            tn = np.logical_and(np.logical_not(pred_bin), np.logical_not(gt_bin)).sum()
+                # Compute metrics per image
+                iou         = tp / (tp + fp + fn) if (tp + fp + fn) > 0 else 1.0
+                dice        = (2 * tp) / (2 * tp + fp + fn) if (2 * tp + fp + fn) > 0 else 1.0
+                precision   = tp / (tp + fp) if (tp + fp) > 0 else 1.0
+                recall      = tp / (tp + fn) if (tp + fn) > 0 else 1.0
+                f1_score    = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+                specificity = tn / (tn + fp) if (tn + fp) > 0 else 1.0
 
-            iou = tp / (tp + fp + fn) if (tp + fp + fn) > 0 else 0
-            dice = (2 * tp) / (2 * tp + fp + fn) if (2 * tp + fp + fn) > 0 else 0
-            precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-            recall = tp / (tp + fn) if (tp + fn) > 0 else 0
-            f1_score = (
-                2 * (precision * recall) / (precision + recall)
-                if (precision + recall) > 0
-                else 0
-            )
-            specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
+                # Append metrics
+                iou_list.append(iou)
+                dice_list.append(dice)
+                precision_list.append(precision)
+                recall_list.append(recall)
+                f1_list.append(f1_score)
+                specificity_list.append(specificity)
 
-            metrics.append(
-                {
-                    "image": name,
-                    "iou": iou,
-                    "dice_score": dice,
-                    "precision": precision,
-                    "recall": recall,
-                    "f1_score": f1_score,
-                    "specificity": specificity,
-                }
-            )
+                # Inference time per image
+                idx = image_names.index(name)
+                time_list.append(times[idx] if idx < len(times) else 0.0)
 
-        avg_metrics = {
-            key: np.mean([m[key] for m in metrics])
-            for key in [
-                "iou",
-                "dice_score",
-                "precision",
-                "recall",
-                "f1_score",
-                "specificity",
-            ]
-        }
+            # Compute average metrics
+            avg_metrics = {
+                "iou": float(np.mean(iou_list)),
+                "dice_score": float(np.mean(dice_list)),
+                "precision": float(np.mean(precision_list)),
+                "recall": float(np.mean(recall_list)),
+                "f1_score": float(np.mean(f1_list)),
+                "specificity": float(np.mean(specificity_list)),
+                "inference_time": float(np.mean(time_list)),
+            }
 
-        with open(times_path, "r") as f:
-            inference_times = json.load(f)
+            # Save to JSON
+            metrics_path = self.pred_path / "metrics.json"
+            with open(metrics_path, "w") as f:
+                json.dump(avg_metrics, f, indent=4)
+            logger.success(f"Metrics saved to {metrics_path}")
 
-        avg_inference_time = float(np.mean(inference_times))
-        avg_metrics["inference_time"] = avg_inference_time
+            logger.info("Average metrics:")
+            for k, v in avg_metrics.items():
+                logger.info(f"{k}: {v:.4f}")
 
-        logger.info("Average metrics:")
-        for k, v in avg_metrics.items():
-            logger.info(f"{k}: {v:.4f}")
-
-        # Save metrics to a JSON file
-        metrics_path = self.pred_path / "metrics.json"
-        with open(metrics_path, "w") as f:
-            json.dump(avg_metrics, f, indent=4)
-        logger.success(f"Metrics saved to {metrics_path}")
-        logger.success("Evaluation completed.")
-
-        return avg_metrics
-    
+            return avg_metrics
     # ------------------------- Private Methods -------------------------
     def _create_yaml(self) -> None:
         """Create a data.yaml file for YOLO training or prediction.
@@ -394,7 +387,7 @@ class YOLO:
             [f for f in image_dir.iterdir() if f.suffix.lower() in ('.png', '.jpg', '.jpeg')]
         )
 
-        for image_file in image_files:
+        for idx, image_file in enumerate(image_files):
             base_name = image_file.stem
             prediction_path = prediction_dir / f"{base_name}.txt"
             image_path = image_dir / image_file.name
@@ -434,7 +427,9 @@ class YOLO:
 
             output_path = output_dir / f"{base_name}.png"
             cv2.imwrite(str(output_path), mask)
-            logger.info(f"Saved: {output_path}")
+
+            if idx % 100 == 0:
+                logger.info(f"Processed {idx + 1}/{len(image_files)} images. Saved mask to {output_path}")
 
         logger.success("Predictions drawn and saved correctly.")
 

@@ -87,7 +87,8 @@ class UNet:
         config: TrainConfig | EvaluateConfig | PredictConfig,
     ) -> None:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.encoder_name = "resnet34"
+        # self.encoder_name = "resnet34"
+        self.encoder_name = "mit_b4"
         self.config = config
 
         if isinstance(config, TrainConfig):
@@ -296,7 +297,7 @@ class UNet:
         instance = cls.__new__(cls)
         instance.mode = "train"
         instance.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        instance.encoder_name = "resnet34"
+        instance.encoder_name = "mit_b4"
         instance.config = config
         instance.batch_size = config.batch_size
         instance.epochs = config.epochs
@@ -341,50 +342,82 @@ class UNet:
                 val_loss += loss.item()
         return val_loss / len(self.val_loader)
 
-    def evaluate(self) -> None:
+    def evaluate(self) -> dict:
         """
-        Evaluate the model on the validation dataset and compute various segmentation metrics.
-        This method loads the model weights, performs inference on the validation dataset,
-        and computes metrics such as IoU, Dice score, precision, recall, F1 score, and specificity.
-        The results are saved in the specified prediction path in JSON format.
+        Evaluate the model on the validation dataset by computing metrics per image.
+        Computes IoU, Dice, precision, recall, F1 score, specificity, and inference time for each image,
+        then returns the average of each metric across all images. Results are saved in JSON format.
         """
         logger.info(f"Evaluating model {self.model_path}")
 
+        # Load model weights and set to eval mode
         self.model.load_state_dict(
             torch.load(str(self.model_path), map_location=self.device)
         )
+        self.model.to(self.device)
         self.model.eval()
-        metrics_list = []
 
-        for images, masks, _ in tqdm(self.val_loader, desc="Evaluating"):
-            images, masks = images.to(self.device), masks.to(self.device)
-            pred_masks, inference_time = self._infer_and_time(images)
-            iou, dice, precision, recall, f1_score, specificity = (
-                self._compute_all_metrics(pred_masks, masks.cpu().numpy().squeeze())
-            )
-            metrics_list.append(
-                {
-                    "iou": iou,
-                    "dice_score": dice,
-                    "precision": precision,
-                    "recall": recall,
-                    "f1_score": f1_score,
-                    "specificity": specificity,
-                    "inference_time": inference_time,
-                }
-            )
+        # Lists to accumulate per-image metrics
+        iou_list = []
+        dice_list = []
+        precision_list = []
+        recall_list = []
+        f1_list = []
+        specificity_list = []
+        time_list = []
+        threshold = 0.5
 
+        with torch.no_grad():
+            for images, masks, _ in tqdm(self.val_loader, desc="Evaluating"):
+                # Move batch to device
+                images = images.to(self.device)
+                masks = masks.to(self.device)
+
+                # Run inference and measure time for the whole batch
+                pred_masks, batch_time = self._infer_and_time(images)
+
+                # Convert predictions and masks to CPU numpy arrays
+                preds = pred_masks
+                gts = masks.cpu().numpy()
+
+                # Estimate per-image inference time
+                batch_size = preds.shape[0]
+                time_per_image = batch_time / batch_size if batch_size > 0 else 0.0
+
+                # Compute metrics for each image in the batch
+                for pred_mask, gt_mask in zip(preds, gts):
+                    iou, dice, precision, recall, f1_score, specificity = self._compute_all_metrics(
+                        pred_mask, gt_mask
+                    )
+
+                    # Accumulate metrics
+                    iou_list.append(iou)
+                    dice_list.append(dice)
+                    precision_list.append(precision)
+                    recall_list.append(recall)
+                    f1_list.append(f1_score)
+                    specificity_list.append(specificity)
+                    time_list.append(time_per_image)
+
+        # Compute average metrics across all images
         avg_metrics = {
-            key: np.mean([m[key] for m in metrics_list]) for key in metrics_list[0]
+            "iou": float(np.mean(iou_list)),
+            "dice_score": float(np.mean(dice_list)),
+            "precision": float(np.mean(precision_list)),
+            "recall": float(np.mean(recall_list)),
+            "f1_score": float(np.mean(f1_list)),
+            "specificity": float(np.mean(specificity_list)),
+            "inference_time": float(np.mean(time_list)),
         }
 
+        # Save metrics to JSON
         logger.info(f"Metrics saved in {self.pred_path}/metrics.json")
         self._write_metrics(SegmentationMetrics(**avg_metrics), format="json")
         self.metrics = avg_metrics
+
         logger.info("Average metrics:")
-        logger.info(
-            "\n\t- ".join([f"{k}: {v:.4f}" for k, v in avg_metrics.items()])
-        )
+        for k, v in avg_metrics.items():
+            logger.info(f"{k}: {v:.4f}")
 
         return avg_metrics
 
@@ -434,23 +467,20 @@ class UNet:
             tuple: A tuple containing IoU, Dice score, precision, recall, F1 score, and specificity.
         """
         pred_bin = (pred > 0.5).astype(np.uint8)
-        mask_bin = (mask > 0.5).astype(np.uint8)
+        gt_bin = (mask > 0.5).astype(np.uint8)
 
-        tp = np.logical_and(pred_bin, mask_bin).sum()
-        fp = np.logical_and(pred_bin, np.logical_not(mask_bin)).sum()
-        fn = np.logical_and(np.logical_not(pred_bin), mask_bin).sum()
-        tn = np.logical_and(np.logical_not(pred_bin), np.logical_not(mask_bin)).sum()
+        tp = np.logical_and(pred_bin, gt_bin).sum()
+        fp = np.logical_and(pred_bin, np.logical_not(gt_bin)).sum()
+        fn = np.logical_and(np.logical_not(pred_bin), gt_bin).sum()
+        tn = np.logical_and(np.logical_not(pred_bin), np.logical_not(gt_bin)).sum()
 
-        iou = tp / (tp + fp + fn) if (tp + fp + fn) > 0 else 0
-        dice = (2.0 * tp) / (2.0 * tp + fp + fn) if (2.0 * tp + fp + fn) > 0 else 0
-        precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-        recall = tp / (tp + fn) if (tp + fn) > 0 else 0
-        f1_score = (
-            2 * (precision * recall) / (precision + recall)
-            if (precision + recall) > 0
-            else 0
-        )
-        specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
+        # Compute each metric per image
+        iou         = tp / (tp + fp + fn) if (tp + fp + fn) > 0 else 1.0
+        dice        = (2 * tp) / (2 * tp + fp + fn) if (2 * tp + fp + fn) > 0 else 1.0
+        precision   = tp / (tp + fp) if (tp + fp) > 0 else 1.0
+        recall      = tp / (tp + fn) if (tp + fn) > 0 else 1.0
+        f1_score    = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+        specificity = tn / (tn + fp) if (tn + fp) > 0 else 1.0
 
         return iou, dice, precision, recall, f1_score, specificity
 
