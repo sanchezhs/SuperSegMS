@@ -88,8 +88,9 @@ class UNet:
     ) -> None:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # self.encoder_name = "resnet34"
-        self.encoder_name = "mit_b4"
+        self.encoder_name = "mit_b5"
         self.config = config
+        self.conf = 0.25
 
         if isinstance(config, TrainConfig):
             if config.limit_resources:
@@ -155,7 +156,6 @@ class UNet:
             self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
                 self.optimizer, mode="min", factor=0.1, patience=5
             )
-
             self.train_losses = []
             self.val_losses = []
 
@@ -204,7 +204,7 @@ class UNet:
         """
         logger.info(f"Training model {self.model_name}")
 
-        if getattr(self, 'use_kfold', False):
+        if self.use_kfold:
             # combine train, val, test
             splits = ["train", "val", "test"]
             datasets = [
@@ -223,6 +223,8 @@ class UNet:
             dataset = ConcatDataset(datasets)
             gkf = GroupKFold(n_splits=self.kfold_n_splits)
             all_metrics = []
+            all_train_hist = []
+            all_val_hist   = []
 
             for fold, (train_idx, val_idx) in enumerate(gkf.split(
                 X=np.arange(len(dataset)),
@@ -242,7 +244,14 @@ class UNet:
                 fold_trainer = UNet.from_kfold(
                     self.config, fold, train_loader, val_loader
                 )
+                # Train the fold
                 fold_trainer.train()
+
+                # Collect training and validation losses
+                all_train_hist.append(fold_trainer.train_losses)
+                all_val_hist.append(fold_trainer.val_losses)
+
+                # Evaluate the fold
                 metrics = fold_trainer.evaluate()
                 all_metrics.append(metrics)
 
@@ -250,7 +259,9 @@ class UNet:
                     f"U-Net Fold {fold+1}/{self.kfold_n_splits} completed. "
                     f"Metrics: {metrics}"
                 )
-
+            self._plot_kfolds_curve(
+                all_train_hist, all_val_hist, self.model_name
+            )
             summary = self._compute_mean_std_metrics(all_metrics)
             self._write_summary(summary)
             send_whatsapp_message(
@@ -296,8 +307,10 @@ class UNet:
         """
         instance = cls.__new__(cls)
         instance.mode = "train"
+        instance.conf = 0.25
         instance.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        instance.encoder_name = "mit_b4"
+        # instance.encoder_name = "resnet34"
+        instance.encoder_name = "mit_b5"
         instance.config = config
         instance.batch_size = config.batch_size
         instance.epochs = config.epochs
@@ -365,7 +378,6 @@ class UNet:
         f1_list = []
         specificity_list = []
         time_list = []
-        threshold = 0.5
 
         with torch.no_grad():
             for images, masks, _ in tqdm(self.val_loader, desc="Evaluating"):
@@ -441,8 +453,8 @@ class UNet:
             image = image.to(self.device)
             with torch.no_grad():
                 pred_mask = torch.sigmoid(self.model(image)).cpu().numpy().squeeze()
-            pred_img = ((pred_mask > 0.5) * 255).astype(np.uint8)
-            output_path = self.dst_path / f"pred_{i}_{image_name[0]}"
+            pred_img = ((pred_mask > self.conf) * 255).astype(np.uint8)
+            output_path = self.dst_path / f"{image_name[0]}"
             cv2.imwrite(str(output_path), pred_img)
 
         logger.info(f"Predictions saved in test directory: {self.dst_path}")
@@ -466,7 +478,7 @@ class UNet:
         Returns:
             tuple: A tuple containing IoU, Dice score, precision, recall, F1 score, and specificity.
         """
-        pred_bin = (pred > 0.5).astype(np.uint8)
+        pred_bin = (pred > self.conf).astype(np.uint8)
         gt_bin = (mask > 0.5).astype(np.uint8)
 
         tp = np.logical_and(pred_bin, gt_bin).sum()
@@ -520,19 +532,29 @@ class UNet:
         plt.savefig(self.dst_path / f"loss_curve_{title}.png")
         logger.info(f"Loss curve saved at {self.dst_path}/loss_curve.png")
 
-    def _infer_and_time(self, image: torch.Tensor) -> tuple[np.ndarray, float]:
-        """
-        Perform inference on a single image and measure the time taken.
-        Args:
-            image (torch.Tensor): Input image tensor.
-        Returns:
-            tuple: A tuple containing the predicted mask and the time taken for inference.
-        """
-        start = time.perf_counter()
+    def _plot_kfolds_curve(
+        self, train_hist: list[list[float]], val_hist: list[list[float]], model_name: str
+    ) -> None:
+        plt.figure(figsize=(10,6))
+        for i, (tr, val) in enumerate(zip(train_hist, val_hist), start=1):
+            plt.plot(tr,      label=f'Fold {i} Train')
+            plt.plot(val, '--', label=f'Fold {i} Val')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.title(f'K-Fold Cross-Validation Loss Curves - {model_name}')
+        plt.legend()
+        plt.grid(True)
+        plt.savefig(self.dst_path / f"kfolds_loss_curve_{model_name}.png")
+        logger.info(f"K-Fold loss curves saved at {self.dst_path}/kfolds_loss_curve_{model_name}.png")
+        plt.close()
+
+    def _infer_and_time(self, images) -> tuple[np.ndarray, float]:
+        start_time = time.perf_counter()
         with torch.no_grad():
-            pred = torch.sigmoid(self.model(image)).cpu().numpy().squeeze()
-        elapsed = time.perf_counter() - start
-        return pred, elapsed
+            outputs = self.model(images)
+            pred_masks = torch.sigmoid(outputs)
+        end_time = time.perf_counter()
+        return pred_masks.cpu().numpy(), end_time - start_time
 
     def _compute_mean_std_metrics(self, metrics_list: list[dict]) -> dict:
         """

@@ -149,6 +149,16 @@ class YOLO:
                     project=fold_dir,
                     device="cuda",
                     verbose=True,
+                    # disable autoaugmentation for unet comparison
+                    hsv_h=0.0,
+                    hsv_s=0.0,
+                    hsv_v=0.0,
+                    translate=0.0,
+                    scale=0.0,
+                    fliplr=0.0,
+                    mosaic=0.0,
+                    erasing=0.0,
+                    auto_augment=None,
                 )
 
                 # evaluate fold
@@ -213,6 +223,16 @@ class YOLO:
                 project=self.dst_path,
                 device="cuda",
                 verbose=True,
+                # disable autoaugmentation for unet comparison
+                hsv_h=0.0,
+                hsv_s=0.0,
+                hsv_v=0.0,
+                translate=0.0,
+                scale=0.0,
+                fliplr=0.0,
+                mosaic=0.0,
+                erasing=0.0,
+                auto_augment=None,
             )
 
     def predict(self, image_dir: Optional[Path] = None, pred_dir: Optional[Path] = None):
@@ -255,6 +275,7 @@ class YOLO:
                 save_crop=False,
                 device="cuda",
                 exist_ok=True,
+                conf=0.25,
             )
             elapsed = time.perf_counter() - start
             inference_times.append(elapsed)
@@ -267,90 +288,91 @@ class YOLO:
         self._draw_predictions(pred_dir=pred_dir, image_dir=image_dir)
 
     def evaluate(self) -> dict:
-            """
-            Evaluate the YOLO predictions using the ground truth masks on a per-image basis.
-            Computes IoU, Dice score, precision, recall, F1 score, specificity, and inference time for each image,
-            then returns the average of each metric across all images. Results are saved in JSON format.
-            """
-            logger.info(f"Evaluating YOLO predictions in folder {self.pred_path}")
+        """
+        Evaluate the YOLO predictions using the ground truth masks on a per-image basis.
+        Computes IoU, Dice score, precision, recall, F1 score, specificity, and inference time for each image,
+        then returns the average of each metric across all images. Results are saved in JSON format.
+        """
+        logger.info(f"Evaluating YOLO predictions in folder {self.pred_path}")
 
-            # Load inference times
-            times_path = self.pred_path / "inference_times.json"
-            with open(times_path, 'r') as f:
-                times = json.load(f)
+        # Load inference times
+        times_path = self.pred_path / "inference_times.json"
+        with open(times_path, 'r') as f:
+            times = json.load(f)
 
-            mask_dir = self.pred_path / "masks"
-            image_names = sorted(mask_dir.iterdir(), key=lambda x: x.name)
+        mask_dir = self.pred_path / "masks"
+        image_names = sorted(mask_dir.iterdir(), key=lambda x: x.name)
 
-            # Lists for per-image metrics
-            iou_list = []
-            dice_list = []
-            precision_list = []
-            recall_list = []
-            f1_list = []
-            specificity_list = []
-            time_list = []
+        # Lists for per-image metrics
+        iou_list = []
+        dice_list = []
+        precision_list = []
+        recall_list = []
+        f1_list = []
+        specificity_list = []
+        time_list = []
 
-            for name in image_names:
-                # Load predicted and ground truth masks
-                pred_mask = cv2.imread(str(mask_dir / name), cv2.IMREAD_GRAYSCALE)
-                gt_mask   = cv2.imread(str(self.gt_path / name), cv2.IMREAD_GRAYSCALE)
-                if pred_mask is None or gt_mask is None:
-                    logger.warning(f"Skipping {name}: missing prediction or ground truth.")
-                    continue
+        for name in image_names:
+            # Load predicted and ground truth masks
+            pred_mask = cv2.imread(str(mask_dir / name.name), cv2.IMREAD_GRAYSCALE)
+            gt_mask   = cv2.imread(str(self.gt_path / name.name), cv2.IMREAD_GRAYSCALE)
+            
+            # if pred_mask is None or gt_mask is None:
+            #     logger.warning(f"Skipping {name}: missing prediction or ground truth.")
+            #     continue
 
-                # Binarize masks
-                pred_bin = (pred_mask > 127).astype(np.uint8)
-                gt_bin   = (gt_mask   > 127).astype(np.uint8)
+            # Binarize masks
+            pred_bin = (pred_mask > 127).astype(np.uint8)
+            gt_bin   = (gt_mask   > 127).astype(np.uint8)
 
-                # Compute pixel-level confusion
-                tp = np.logical_and(pred_bin, gt_bin).sum()
-                fp = np.logical_and(pred_bin, np.logical_not(gt_bin)).sum()
-                fn = np.logical_and(np.logical_not(pred_bin), gt_bin).sum()
-                tn = np.logical_and(np.logical_not(pred_bin), np.logical_not(gt_bin)).sum()
+            # Compute pixel-level confusion
+            tp = np.logical_and(pred_bin, gt_bin).sum()
+            fp = np.logical_and(pred_bin, np.logical_not(gt_bin)).sum()
+            fn = np.logical_and(np.logical_not(pred_bin), gt_bin).sum()
+            tn = np.logical_and(np.logical_not(pred_bin), np.logical_not(gt_bin)).sum()
 
-                # Compute metrics per image
-                iou         = tp / (tp + fp + fn) if (tp + fp + fn) > 0 else 1.0
-                dice        = (2 * tp) / (2 * tp + fp + fn) if (2 * tp + fp + fn) > 0 else 1.0
-                precision   = tp / (tp + fp) if (tp + fp) > 0 else 1.0
-                recall      = tp / (tp + fn) if (tp + fn) > 0 else 1.0
-                f1_score    = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
-                specificity = tn / (tn + fp) if (tn + fp) > 0 else 1.0
+            # Compute metrics per image
+            iou         = tp / (tp + fp + fn) if (tp + fp + fn) > 0 else 1.0
+            dice        = (2 * tp) / (2 * tp + fp + fn) if (2 * tp + fp + fn) > 0 else 1.0
+            precision   = tp / (tp + fp) if (tp + fp) > 0 else 1.0
+            recall      = tp / (tp + fn) if (tp + fn) > 0 else 1.0
+            f1_score    = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+            specificity = tn / (tn + fp) if (tn + fp) > 0 else 1.0
 
-                # Append metrics
-                iou_list.append(iou)
-                dice_list.append(dice)
-                precision_list.append(precision)
-                recall_list.append(recall)
-                f1_list.append(f1_score)
-                specificity_list.append(specificity)
+            # Append metrics
+            iou_list.append(iou)
+            dice_list.append(dice)
+            precision_list.append(precision)
+            recall_list.append(recall)
+            f1_list.append(f1_score)
+            specificity_list.append(specificity)
 
-                # Inference time per image
-                idx = image_names.index(name)
-                time_list.append(times[idx] if idx < len(times) else 0.0)
+            # Inference time per image
+            idx = image_names.index(name)
+            time_list.append(times[idx] if idx < len(times) else 0.0)
 
-            # Compute average metrics
-            avg_metrics = {
-                "iou": float(np.mean(iou_list)),
-                "dice_score": float(np.mean(dice_list)),
-                "precision": float(np.mean(precision_list)),
-                "recall": float(np.mean(recall_list)),
-                "f1_score": float(np.mean(f1_list)),
-                "specificity": float(np.mean(specificity_list)),
-                "inference_time": float(np.mean(time_list)),
-            }
+        # Compute average metrics
+        avg_metrics = {
+            "iou": float(np.mean(iou_list)),
+            "dice_score": float(np.mean(dice_list)),
+            "precision": float(np.mean(precision_list)),
+            "recall": float(np.mean(recall_list)),
+            "f1_score": float(np.mean(f1_list)),
+            "specificity": float(np.mean(specificity_list)),
+            "inference_time": float(np.mean(time_list)),
+        }
 
-            # Save to JSON
-            metrics_path = self.pred_path / "metrics.json"
-            with open(metrics_path, "w") as f:
-                json.dump(avg_metrics, f, indent=4)
-            logger.success(f"Metrics saved to {metrics_path}")
+        # Save to JSON
+        metrics_path = self.pred_path / "metrics.json"
+        with open(metrics_path, "w") as f:
+            json.dump(avg_metrics, f, indent=4)
+        logger.success(f"Metrics saved to {metrics_path}")
 
-            logger.info("Average metrics:")
-            for k, v in avg_metrics.items():
-                logger.info(f"{k}: {v:.4f}")
+        logger.info("Average metrics:")
+        for k, v in avg_metrics.items():
+            logger.info(f"{k}: {v:.4f}")
 
-            return avg_metrics
+        return avg_metrics
     # ------------------------- Private Methods -------------------------
     def _create_yaml(self) -> None:
         """Create a data.yaml file for YOLO training or prediction.
@@ -401,8 +423,8 @@ class YOLO:
             img = cv2.resize(img, img_size[:2])
             mask = np.zeros_like(img)
 
-            if not prediction_path.exists():
-                logger.warning(f"Prediction file not found for {image_file.name}. Saving empty mask.")
+            if not os.path.exists(prediction_path):
+                logger.warning(f"Prediction file not found for {image_file}. Saving empty mask.")
             else:
                 with open(prediction_path, "r") as f:
                     lines = f.readlines()
@@ -410,7 +432,7 @@ class YOLO:
                 if not lines:
                     # If the prediction file is empty, log a warning and save an empty mask
                     # we want to save an empty mask to avoid a bias in evaluation
-                    logger.info(f"No predictions for {image_file.name}. Saving empty mask.")
+                    logger.info(f"No predictions for {image_file}. Saving empty mask.")
                 else:
                     for line in lines:
                         values = list(map(float, line.split()))
@@ -425,13 +447,9 @@ class YOLO:
                                 points = points.astype(np.int32)
                                 cv2.fillPoly(mask, [points], color=255)
 
-            output_path = output_dir / f"{base_name}.png"
-            cv2.imwrite(str(output_path), mask)
+            cv2.imwrite(os.path.join(output_dir, f"{base_name}.png"), mask)
 
-            if idx % 100 == 0:
-                logger.info(f"Processed {idx + 1}/{len(image_files)} images. Saved mask to {output_path}")
-
-        logger.success("Predictions drawn and saved correctly.")
+        logger.success(f"Predictions drawn and saved correctly to {output_dir}")
 
     def _get_image_size(self) -> tuple[int, int, int]:
         """Get the image size from the data.yaml file.

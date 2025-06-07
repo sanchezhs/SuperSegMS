@@ -53,8 +53,7 @@ class PreprocessingPipeline:
         self.saver = saver
 
     def run(self):
-        # all_patients = sorted([d.name for d in self.src_train_root.iterdir() if d.is_dir()])
-        all_patients = [d.name for d in self.src_train_root.iterdir() if d.is_dir()]
+        all_patients = sorted([d.name for d in self.src_train_root.iterdir() if d.is_dir()])
         train_ids, val_ids, test_ids = self.splitter.split(all_patients)
         split_dirs = self._make_split_dirs()
 

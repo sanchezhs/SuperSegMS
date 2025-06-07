@@ -19,7 +19,7 @@
                 "batch_size": 16,
                 "use_kfold": true,
                 "epochs": 25,
-                "learning_rate": 0.001
+                "learning_rate": 0.01
             },
             "predict": {
                 "net": "unet",
@@ -54,7 +54,7 @@
                 "use_kfold": true,
                 "batch_size": 16,
                 "epochs": 25,
-                "learning_rate": 0.001
+                "learning_rate": 0.01
             },
             "predict": {
                 "net": "yolo",
@@ -89,7 +89,7 @@
                 "batch_size": 16,
                 "use_kfold": true,
                 "epochs": 25,
-                "learning_rate": 0.001
+                "learning_rate": 0.01
             },
             "predict": {
                 "net": "unet",
@@ -124,7 +124,7 @@
                 "use_kfold": true,
                 "batch_size": 16,
                 "epochs": 25,
-                "learning_rate": 0.001
+                "learning_rate": 0.01
             },
             "predict": {
                 "net": "unet",
@@ -159,7 +159,7 @@
                 "use_kfold": true,
                 "batch_size": 16,
                 "epochs": 25,
-                "learning_rate": 0.001
+                "learning_rate": 0.01
             },
             "predict": {
                 "net": "yolo",
@@ -194,7 +194,7 @@
                 "use_kfold": true,
                 "batch_size": 16,
                 "epochs": 25,
-                "learning_rate": 0.001
+                "learning_rate": 0.01
             },
             "predict": {
                 "net": "yolo",
@@ -231,7 +231,7 @@
                 "use_kfold": true,
                 "batch_size": 16,
                 "epochs": 25,
-                "learning_rate": 0.001
+                "learning_rate": 0.01
             },
             "predict": {
                 "net": "unet",
@@ -268,7 +268,7 @@
                 "use_kfold": true,
                 "batch_size": 16,
                 "epochs": 25,
-                "learning_rate": 0.001
+                "learning_rate": 0.01
             },
             "predict": {
                 "net": "unet",
@@ -305,7 +305,7 @@
                 "use_kfold": true,
                 "batch_size": 16,
                 "epochs": 25,
-                "learning_rate": 0.001
+                "learning_rate": 0.01
             },
             "predict": {
                 "net": "yolo",
@@ -342,7 +342,7 @@
                 "use_kfold": true,
                 "batch_size": 16,
                 "epochs": 25,
-                "learning_rate": 0.001
+                "learning_rate": 0.01
             },
             "predict": {
                 "net": "yolo",
