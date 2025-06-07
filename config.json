@@ -5,7 +5,7 @@
             "preprocess": {
                 "net": "unet",
                 "src_path": "datasets/MSLesSeg-Dataset",
-                "dst_path": "datasets/unet_all_kfolds",
+                "dst_path": "datasets/unet_all",
                 "resize": [320, 320],
                 "split": 0.7,
                 "seed": 42,
@@ -14,7 +14,7 @@
             },
             "train": {
                 "net": "unet",
-                "src_path": "datasets/unet_all_kfolds",
+                "src_path": "datasets/unet_all",
                 "dst_path": "results/unet/unet_all_kfolds",
                 "batch_size": 16,
                 "use_kfold": true,
@@ -23,15 +23,15 @@
             },
             "predict": {
                 "net": "unet",
-                "model_path": "results/unet/unet_all/models/unet_all.pth",
+                "model_path": "results/unet/unet_all_kfolds/models/unet_all_kfolds.pth",
                 "src_path": "datasets/unet_all",
-                "dst_path": "results/unet/unet_all/predictions"
+                "dst_path": "results/unet/unet_all_kfolds/predictions"
             },
             "evaluate": {
                 "net": "unet",
-                "model_path": "results/unet/unet_all/models/unet_all.pth",
+                "model_path": "results/unet/unet_all_kfolds/models/unet_all_kfolds.pth",
                 "src_path": "datasets/unet_all",
-                "pred_path": "results/unet/unet_all/predictions",
+                "pred_path": "results/unet/unet_all_kfolds/predictions",
                 "gt_path": "datasets/unet_all/labels/test"
             }
         },
@@ -40,7 +40,7 @@
             "preprocess": {
                 "net": "yolo",
                 "src_path": "datasets/MSLesSeg-Dataset",
-                "dst_path": "datasets/yolo_all_kfolds",
+                "dst_path": "datasets/yolo_all",
                 "resize": [320, 320],
                 "split": 0.7,
                 "seed": 42,
@@ -49,7 +49,7 @@
             },
             "train": {
                 "net": "yolo",
-                "src_path": "datasets/yolo_all_kfolds",
+                "src_path": "datasets/yolo_all",
                 "dst_path": "results/yolo/yolo_all_kfolds",
                 "use_kfold": true,
                 "batch_size": 16,
@@ -58,15 +58,15 @@
             },
             "predict": {
                 "net": "yolo",
-                "model_path": "results/yolo/yolo_all/train/weights/best.pt",
+                "model_path": "results/yolo/yolo_all_kfolds/train/weights/best.pt",
                 "src_path": "datasets/yolo_all",
-                "dst_path": "results/yolo/yolo_all/predictions"
+                "dst_path": "results/yolo/yolo_all_kfolds/predictions"
             },
             "evaluate": {
                 "net": "yolo",
-                "model_path": "results/yolo/yolo_all/train/weights/best.pt",
+                "model_path": "results/yolo/yolo_all_kfolds/train/weights/best.pt",
                 "src_path": "datasets/yolo_all",
-                "pred_path": "results/yolo/yolo_all/predictions",
+                "pred_path": "results/yolo/yolo_all_kfolds/predictions",
                 "gt_path": "datasets/yolo_all/labels/test"
             }
         },
@@ -75,7 +75,7 @@
             "preprocess": {
                 "net": "unet",
                 "src_path": "datasets/MSLesSeg-Dataset",
-                "dst_path": "datasets/unet_lesion_kfolds",
+                "dst_path": "datasets/unet_lesion",
                 "resize": [320, 320],
                 "split": 0.7,
                 "seed": 42,
@@ -84,7 +84,7 @@
             },
             "train": {
                 "net": "unet",
-                "src_path": "datasets/unet_lesion_kfolds",
+                "src_path": "datasets/unet_lesion",
                 "dst_path": "results/unet/unet_lesion_kfolds",
                 "batch_size": 16,
                 "use_kfold": true,
@@ -93,16 +93,16 @@
             },
             "predict": {
                 "net": "unet",
-                "model_path": "results/unet/unet_all_100/models/unet_all_100.pth",
-                "src_path": "datasets/unet_all_100",
-                "dst_path": "results/unet/unet_all_100/predictions"
+                "model_path": "results/unet/unet_lesion_kfolds/models/unet_lesion_kfolds.pth",
+                "src_path": "datasets/unet_lesion",
+                "dst_path": "results/unet/unet_lesion_kfolds/predictions"
             },
             "evaluate": {
                 "net": "unet",
-                "model_path": "results/unet/unet_all_100/models/unet_all_100.pth",
-                "src_path": "datasets/unet_all_100",
-                "pred_path": "results/unet/unet_all_100/predictions",
-                "gt_path": "datasets/unet_all_100/labels/test"
+                "model_path": "results/unet/unet_lesion_kfolds/models/unet_lesion_kfolds.pth",
+                "src_path": "datasets/unet_lesion",
+                "pred_path": "results/unet/unet_lesion_kfolds/predictions",
+                "gt_path": "datasets/unet_lesion/labels/test"
             }
         },
         {
@@ -110,7 +110,7 @@
             "preprocess": {
                 "net": "unet",
                 "src_path": "datasets/MSLesSeg-Dataset",
-                "dst_path": "datasets/unet_lesion_x2_kfolds",
+                "dst_path": "datasets/unet_lesion_x2",
                 "resize": [320, 320],
                 "split": 0.7,
                 "seed": 42,
@@ -119,7 +119,7 @@
             },
             "train": {
                 "net": "unet",
-                "src_path": "datasets/unet_lesion_x2_kfolds",
+                "src_path": "datasets/unet_lesion_x2",
                 "dst_path": "results/unet/unet_lesion_x2_kfolds",
                 "use_kfold": true,
                 "batch_size": 16,
@@ -128,16 +128,16 @@
             },
             "predict": {
                 "net": "unet",
-                "model_path": "results/unet/unet_all_100_x2/models/unet_all_100_x2.pth",
-                "src_path": "datasets/unet_all_100_x2",
-                "dst_path": "results/unet/unet_all_100_x2/predictions"
+                "model_path": "results/unet/unet_lesion_x2_kfolds/models/unet_lesion_x2_kfolds.pth",
+                "src_path": "datasets/unet_lesion_x2",
+                "dst_path": "results/unet/unet_lesion_x2_kfolds/predictions"
             },
             "evaluate": {
                 "net": "unet",
-                "model_path": "results/unet/unet_all_100_x2/models/unet_all_100_x2.pth",
-                "src_path": "datasets/unet_all_100_x2",
-                "pred_path": "results/unet/unet_all_100_x2/predictions",
-                "gt_path": "datasets/unet_all_100_x2/labels/test"
+                "model_path": "results/unet/unet_lesion_x2_kfolds/models/unet_lesion_x2_kfolds.pth",
+                "src_path": "datasets/unet_lesion_x2",
+                "pred_path": "results/unet/unet_lesion_x2_kfolds/predictions",
+                "gt_path": "datasets/unet_lesion_x2_kfolds/labels/test"
             }
         },
         {
@@ -145,7 +145,7 @@
             "preprocess": {
                 "net": "yolo",
                 "src_path": "datasets/MSLesSeg-Dataset",
-                "dst_path": "datasets/yolo_lesion_kfolds",
+                "dst_path": "datasets/yolo_lesion",
                 "resize": [320, 320],
                 "split": 0.7,
                 "seed": 42,
@@ -154,7 +154,7 @@
             },
             "train": {
                 "net": "yolo",
-                "src_path": "datasets/yolo_lesion_kfolds",
+                "src_path": "datasets/yolo_lesion",
                 "dst_path": "results/yolo/yolo_lesion_kfolds",
                 "use_kfold": true,
                 "batch_size": 16,
@@ -163,16 +163,16 @@
             },
             "predict": {
                 "net": "yolo",
-                "model_path": "results/yolo/yolo_all_100/train/weights/best.pt",
-                "src_path": "datasets/yolo_all_100",
-                "dst_path": "results/yolo/yolo_all_100/predictions"
+                "model_path": "results/yolo/yolo_lesion_kfolds/train/weights/best.pt",
+                "src_path": "datasets/yolo_lesion",
+                "dst_path": "results/yolo/yolo_lesion_kfolds/predictions"
             },
             "evaluate": {
                 "net": "yolo",
-                "model_path": "results/yolo/yolo_all_100/train/weights/best.pt",
-                "src_path": "datasets/yolo_all_100",
-                "pred_path": "results/yolo/yolo_all_100/predictions",
-                "gt_path": "datasets/yolo_all_100/labels/test"
+                "model_path": "results/yolo/yolo_lesion_kfolds/train/weights/best.pt",
+                "src_path": "datasets/yolo_lesion",
+                "pred_path": "results/yolo/yolo_lesion_kfolds/predictions",
+                "gt_path": "datasets/yolo_lesion/labels/test"
             }
         },
         {
@@ -180,7 +180,7 @@
             "preprocess": {
                 "net": "yolo",
                 "src_path": "datasets/MSLesSeg-Dataset",
-                "dst_path": "datasets/yolo_lesion_x2_kfolds",
+                "dst_path": "datasets/yolo_lesion_x2",
                 "resize": [320, 320],
                 "split": 0.7,
                 "seed": 42,
@@ -189,7 +189,7 @@
             },
             "train": {
                 "net": "yolo",
-                "src_path": "datasets/yolo_lesion_x2_kfolds",
+                "src_path": "datasets/yolo_lesion_x2",
                 "dst_path": "results/yolo/yolo_lesion_x2_kfolds",
                 "use_kfold": true,
                 "batch_size": 16,
@@ -198,16 +198,16 @@
             },
             "predict": {
                 "net": "yolo",
-                "src_path": "datasets/yolo_all_100_x2",
-                "dst_path": "results/yolo/yolo_all_100_x2/predictions",
-                "model_path": "results/yolo/yolo_all_100_x2/train/weights/best.pt"
+                "src_path": "datasets/yolo_lesion_x2",
+                "dst_path": "results/yolo/yolo_lesion_x2_kfolds/predictions",
+                "model_path": "results/yolo/yolo_lesion_x2_kfolds/train/weights/best.pt"
             },
             "evaluate": {
                 "net": "yolo",
-                "src_path": "datasets/yolo_all_100_x2",
-                "pred_path": "results/yolo/yolo_all_100_x2/predictions",
-                "model_path": "results/yolo/yolo_all_100_x2/train/weights/best.pt",
-                "gt_path": "datasets/yolo_all_100_x2/labels/test"
+                "src_path": "datasets/yolo_lesion_x2",
+                "pred_path": "results/yolo/yolo_lesion_x2_kfolds/predictions",
+                "model_path": "results/yolo/yolo_lesion_x2_kfolds/train/weights/best.pt",
+                "gt_path": "datasets/yolo_lesion_x2/labels/test"
             }
         },
         {
@@ -215,7 +215,7 @@
             "preprocess": {
                 "net": "unet",
                 "src_path": "datasets/MSLesSeg-Dataset",
-                "dst_path": "datasets/unet_top5_slice_x0",
+                "dst_path": "datasets/unet_block_x0",
                 "resize": [320, 320],
                 "split": 0.7,
                 "seed": 42,
@@ -226,8 +226,8 @@
             },
             "train": {
                 "net": "unet",
-                "src_path": "datasets/unet_top5_slice_x0",
-                "dst_path": "results/unet/unet_top5_slice_x0_kfolds",
+                "src_path": "datasets/unet_block_x0",
+                "dst_path": "results/unet/unet_block_x0_kfolds",
                 "use_kfold": true,
                 "batch_size": 16,
                 "epochs": 25,
@@ -235,16 +235,16 @@
             },
             "predict": {
                 "net": "unet",
-                "model_path": "results/unet/unet_top5_slice_x0/models/unet_top5_slice_x0.pth",
-                "src_path": "datasets/unet_top5_slice_x0",
-                "dst_path": "results/unet/unet_top5_slice_x0/predictions"
+                "model_path": "results/unet/unet_block_x0_kfolds/models/unet_block_x0_kfolds.pth",
+                "src_path": "datasets/unet_block_x0",
+                "dst_path": "results/unet/unet_block_x0_kfolds/predictions"
             },
             "evaluate": {
                 "net": "unet",
-                "model_path": "results/unet/unet_top5_slice_x0/models/unet_top5_slice_x0.pth",
-                "src_path": "datasets/unet_top5_slice_x0",
-                "pred_path": "results/unet/unet_top5_slice_x0/predictions",
-                "gt_path": "datasets/unet_top5_slice_x0/labels/test"
+                "model_path": "results/unet/unet_block_x0_kfolds/models/unet_block_x0_kfolds.pth",
+                "src_path": "datasets/unet_block_x0",
+                "pred_path": "results/unet/unet_block_x0_kfolds/predictions",
+                "gt_path": "datasets/unet_block_x0/labels/test"
             }
         },
         {
@@ -252,7 +252,7 @@
             "preprocess": {
                 "net": "unet",
                 "src_path": "datasets/MSLesSeg-Dataset",
-                "dst_path": "datasets/unet_top5_slice_x2",
+                "dst_path": "datasets/unet_block_x2",
                 "resize": [320, 320],
                 "split": 0.7,
                 "seed": 42,
@@ -263,8 +263,8 @@
             },
             "train": {
                 "net": "unet",
-                "src_path": "datasets/unet_top5_slice_x2",
-                "dst_path": "results/unet/unet_top5_slice_x2_kfolds",
+                "src_path": "datasets/unet_block_x2",
+                "dst_path": "results/unet/unet_block_x2_kfolds",
                 "use_kfold": true,
                 "batch_size": 16,
                 "epochs": 25,
@@ -272,16 +272,16 @@
             },
             "predict": {
                 "net": "unet",
-                "model_path": "results/unet/unet_top5_slice_x2/models/unet_top5_slice_x2.pth",
-                "src_path": "datasets/unet_top5_slice_x2",
-                "dst_path": "results/unet/unet_top5_slice_x2/predictions"
+                "model_path": "results/unet/unet_block_x2_kfolds/models/unet_block_x2_kfolds.pth",
+                "src_path": "datasets/unet_block_x2",
+                "dst_path": "results/unet/unet_block_x2_kfolds/predictions"
             },
             "evaluate": {
                 "net": "unet",
-                "model_path": "results/unet/unet_top5_slice_x2/models/unet_top5_slice_x2.pth",
-                "src_path": "datasets/unet_top5_slice_x2",
-                "pred_path": "results/unet/unet_top5_slice_x2/predictions",
-                "gt_path": "datasets/unet_top5_slice_x2/labels/test"
+                "model_path": "results/unet/unet_block_x2_kfolds/models/unet_block_x2_kfolds.pth",
+                "src_path": "datasets/unet_block_x2",
+                "pred_path": "results/unet/unet_block_x2_kfolds/predictions",
+                "gt_path": "datasets/unet_block_x2/labels/test"
             }
         },
         {
@@ -289,7 +289,7 @@
             "preprocess": {
                 "net": "yolo",
                 "src_path": "datasets/MSLesSeg-Dataset",
-                "dst_path": "datasets/yolo_top5_slice_x0",
+                "dst_path": "datasets/yolo_block_x0",
                 "resize": [320, 320],
                 "split": 0.7,
                 "seed": 42,
@@ -300,8 +300,8 @@
             },
             "train": {
                 "net": "yolo",
-                "src_path": "datasets/yolo_top5_slice_x0",
-                "dst_path": "results/yolo/yolo_top5_slice_x0_kfolds",
+                "src_path": "datasets/yolo_block_x0",
+                "dst_path": "results/yolo/yolo_block_x0_kfolds",
                 "use_kfold": true,
                 "batch_size": 16,
                 "epochs": 25,
@@ -309,16 +309,16 @@
             },
             "predict": {
                 "net": "yolo",
-                "src_path": "datasets/yolo_top5_slice_x0",
-                "dst_path": "results/yolo/yolo_top5_slice_x0/predictions",
-                "model_path": "results/yolo/yolo_top5_slice_x0/train/weights/best.pt"
+                "src_path": "datasets/yolo_block_x0",
+                "dst_path": "results/yolo/yolo_block_x0_kfolds/predictions",
+                "model_path": "results/yolo/yolo_block_x0_kfolds/train/weights/best.pt"
             },
             "evaluate": {
                 "net": "yolo",
-                "src_path": "datasets/yolo_top5_slice_x0",
-                "pred_path": "results/yolo/yolo_top5_slice_x0/predictions",
-                "model_path": "results/yolo/yolo_top5_slice_x0/train/weights/best.pt",
-                "gt_path": "datasets/yolo_top5_slice_x0/labels/test"
+                "src_path": "datasets/yolo_block_x0",
+                "pred_path": "results/yolo/yolo_block_x0_kfolds/predictions",
+                "model_path": "results/yolo/yolo_block_x0_kfolds/train/weights/best.pt",
+                "gt_path": "datasets/yolo_block_x0/labels/test"
             }
         },
         {
@@ -326,7 +326,7 @@
             "preprocess": {
                 "net": "yolo",
                 "src_path": "datasets/MSLesSeg-Dataset",
-                "dst_path": "datasets/yolo_top5_slice_x2_prueba",
+                "dst_path": "datasets/yolo_block_x2",
                 "resize": [320, 320],
                 "split": 0.7,
                 "seed": 42,
@@ -337,8 +337,8 @@
             },
             "train": {
                 "net": "yolo",
-                "src_path": "datasets/yolo_top5_slice_x2",
-                "dst_path": "results/yolo/yolo_top5_slice_x2_kfolds",
+                "src_path": "datasets/yolo_block_x2",
+                "dst_path": "results/yolo/yolo_block_x2_kfolds",
                 "use_kfold": true,
                 "batch_size": 16,
                 "epochs": 25,
@@ -346,16 +346,16 @@
             },
             "predict": {
                 "net": "yolo",
-                "src_path": "datasets/yolo_top5_slice_x2",
-                "dst_path": "results/yolo/yolo_top5_slice_x2/predictions",
-                "model_path": "results/yolo/yolo_top5_slice_x2/train/weights/best.pt"
+                "src_path": "datasets/yolo_block_x2",
+                "dst_path": "results/yolo/yolo_block_x2_kfolds/predictions",
+                "model_path": "results/yolo/yolo_block_x2_kfolds/train/weights/best.pt"
             },
             "evaluate": {
                 "net": "yolo",
-                "src_path": "datasets/yolo_top5_slice_x2",
-                "pred_path": "results/yolo/yolo_top5_slice_x2/predictions",
-                "model_path": "results/yolo/yolo_top5_slice_x2/train/weights/best.pt",
-                "gt_path": "datasets/yolo_top5_slice_x2/labels/test"
+                "src_path": "datasets/yolo_block_x2",
+                "pred_path": "results/yolo/yolo_block_x2_kfolds/predictions",
+                "model_path": "results/yolo/yolo_block_x2_kfolds/train/weights/best.pt",
+                "gt_path": "datasets/yolo_block_x2/labels/test"
             }
         }
     ]
