@@ -159,6 +159,7 @@ class YOLO:
                     mosaic=0.0,
                     erasing=0.0,
                     auto_augment=None,
+                    augment=False,
                 )
 
                 # evaluate fold
@@ -233,6 +234,7 @@ class YOLO:
                 mosaic=0.0,
                 erasing=0.0,
                 auto_augment=None,
+                augment=False,
             )
 
     def predict(self, image_dir: Optional[Path] = None, pred_dir: Optional[Path] = None):
