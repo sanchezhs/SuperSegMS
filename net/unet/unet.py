@@ -251,6 +251,9 @@ class UNet:
                 all_train_hist.append(fold_trainer.train_losses)
                 all_val_hist.append(fold_trainer.val_losses)
 
+                # Predict the fold
+                fold_trainer.predict()
+
                 # Evaluate the fold
                 metrics = fold_trainer.evaluate()
                 all_metrics.append(metrics)
