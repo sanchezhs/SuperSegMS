@@ -149,7 +149,7 @@ def preprocess(config: PreprocessConfig) -> None:
     
     if config.super_scale != SuperScale.NONE:
         transformers.insert(
-            1, SuperResolutionTransformer(super_scale=config.super_scale)
+            1, SuperResolutionTransformer(super_scale=config.super_scale, orig_size=config.resize)
         )
 
     transformer = ComposeTransformer(transformers)

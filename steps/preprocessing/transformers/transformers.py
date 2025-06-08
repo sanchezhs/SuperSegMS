@@ -28,17 +28,23 @@ class ResizeTransformer(Transformer):
 
 
 class SuperResolutionTransformer(Transformer):
-    def __init__(self, super_scale: SuperScale):
+    def __init__(self, super_scale: SuperScale, orig_size: tuple[int, int]):
         """
         If super_scale == SuperScale.NONE → no op. Otherwise apply FSRCNN model.
         """
         self.super_scale = super_scale
+        self.orig_size = orig_size  # Original size for resizing before super-resolution
         if super_scale != SuperScale.NONE:
             self.model = FSRCNN(super_scale, FSRCNN_PATH[super_scale])
         else:
             self.model = None
 
     def transform(self, img: np.ndarray, is_flair: bool) -> np.ndarray:
+        if np.max(img) == 0:
+            # If the image is empty, do not apply super-resolution
+            # because it will produce artifacts.
+            new_resolution = (self.orig_size[0] * self.super_scale.value, self.orig_size[1] * self.super_scale.value)
+            return cv2.resize(img, new_resolution, interpolation=cv2.INTER_NEAREST)
         if not is_flair or self.super_scale == SuperScale.NONE:
             return img
         return self.model.apply(img)
