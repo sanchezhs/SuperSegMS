@@ -87,7 +87,7 @@ class UNet:
         config: TrainConfig | EvaluateConfig | PredictConfig,
     ) -> None:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.encoder_name = "mit_b2"
+        self.encoder_name = "resnet50"
         # self.encoder_name = "mit_b5"
         self.config = config
         self.conf = 0.25
@@ -309,7 +309,7 @@ class UNet:
         instance.mode = "train"
         instance.conf = 0.25
         instance.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        instance.encoder_name = "mit_b2"
+        instance.encoder_name = "resnet50"
         # instance.encoder_name = "mit_b5"
         instance.config = config
         instance.batch_size = config.batch_size
