@@ -199,6 +199,121 @@ class UNet:
             raise ValueError(f"Invalid configuration type: {type(config)}. Expected TrainConfig, EvaluateConfig, or PredictConfig.")
 
     def train(self) -> None:
+            """
+            Train the U-Net model using mixed precision when available.
+            """
+            logger.info(f"Training model {self.model_name} with mixed precision")
+
+            # Initialize GradScaler for automatic mixed precision
+            scaler = torch.GradScaler()
+
+            if getattr(self, 'use_kfold', False):
+                # K-fold cross-validation
+                splits = ["train", "val", "test"]
+                datasets = [
+                    MRIDataset(
+                        os.path.join(self.src_path, "images", s),
+                        os.path.join(self.src_path, "labels", s)
+                    ) for s in splits
+                ]
+                # Build group labels from filenames
+                group_labels = []
+                for ds in datasets:
+                    for img_name in ds.images:
+                        pid = img_name.split('_')[0]
+                        group_labels.append(pid)
+
+                dataset = ConcatDataset(datasets)
+                gkf = GroupKFold(n_splits=self.kfold_n_splits)
+                all_metrics = []
+
+                for fold, (train_idx, val_idx) in enumerate(gkf.split(
+                    X=np.arange(len(dataset)),
+                    groups=group_labels
+                )):
+                    logger.info(f"Starting fold {fold+1}/{self.kfold_n_splits}")
+                    train_loader = DataLoader(
+                        Subset(dataset, train_idx),
+                        batch_size=self.batch_size,
+                        num_workers=8,
+                        pin_memory=True,
+                        persistent_workers=True
+                    )
+                    val_loader = DataLoader(
+                        Subset(dataset, val_idx),
+                        batch_size=self.batch_size,
+                        num_workers=8,
+                        pin_memory=True,
+                        persistent_workers=True
+                    )
+                    fold_trainer = UNet.from_kfold(
+                        self.config, fold, train_loader, val_loader
+                    )
+                    fold_trainer.scaler = scaler  # pass scaler if needed
+                    fold_trainer.train()
+                    metrics = fold_trainer.evaluate()
+                    all_metrics.append(metrics)
+
+                    send_whatsapp_message(
+                        f"U-Net Fold {fold+1}/{self.kfold_n_splits} completed. Metrics: {metrics}"
+                    )
+
+                summary = self._compute_mean_std_metrics(all_metrics)
+                self._write_summary(summary)
+                send_whatsapp_message(
+                    f"U-Net Cross-validation completed. Summary: {summary}"
+                )
+                return summary
+
+            # Standard training
+            best_val_loss = float("inf")
+            for epoch in range(self.epochs):
+                self.model.train()
+                epoch_loss = 0
+                for images, masks, _ in tqdm(self.train_loader, desc=f"Epoch {epoch+1}/{self.epochs}"):
+                    images, masks = images.to(self.device), masks.to(self.device)
+                    self.optimizer.zero_grad()
+
+                    # Forward pass with mixed precision
+                    with torch.cuda.amp.autocast(
+                        enabled=True,  dtype=torch.float16 if torch.cuda.is_available() else torch.float32
+                    ):
+                        outputs = self.model(images)
+                        loss = self.criterion(outputs, masks)
+
+                    # Backward pass with scaled gradients
+                    scaler.scale(loss).backward()
+                    scaler.step(self.optimizer)
+                    scaler.update()
+
+                    epoch_loss += loss.item()
+
+                # Validation (no grad)
+                self.model.eval()
+                with torch.no_grad():
+                    with torch.cuda.amp.autocast(
+                        enabled=True, dtype=torch.float16 if torch.cuda.is_available() else torch.float32
+                    ):
+                        val_loss = self.validate()
+
+                # Scheduler step
+                self.scheduler.step(val_loss)
+                self.train_losses.append(epoch_loss / len(self.train_loader))
+                self.val_losses.append(val_loss)
+                logger.info(
+                    f"Epoch [{epoch+1}/{self.epochs}], "
+                    f"Loss: {epoch_loss/len(self.train_loader):.4f}, Val Loss: {val_loss:.4f}"
+                )
+
+                # Save best model
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
+                    torch.save(self.model.state_dict(), self.model_path)
+                    logger.info(f"Saved best mixed-precision model to {self.model_path}")
+
+            self._plot_loss_curve()
+
+    def train2(self) -> None:
         """
         Train the U-Net model using the specified training configuration.
         If k-fold cross-validation is enabled, it will perform k-fold training.
@@ -265,7 +380,7 @@ class UNet:
         for epoch in range(self.epochs):
             self.model.train()
             epoch_loss = 0
-            for images, masks, _ in tqdm(self.train_loader, desc=f"Epoch {epoch+1}/{self.epochs}"):  
+            for images, masks, _ in tqdm(self.train_loader, desc=f"Epoch {epoch+1}/{self.epochs}"):
                 images, masks = images.to(self.device), masks.to(self.device)
                 self.optimizer.zero_grad()
                 outputs = self.model(images)
