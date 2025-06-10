@@ -235,14 +235,14 @@ class UNet:
                     train_loader = DataLoader(
                         Subset(dataset, train_idx),
                         batch_size=self.batch_size,
-                        num_workers=8,
+                        num_workers=4,
                         pin_memory=True,
                         persistent_workers=True
                     )
                     val_loader = DataLoader(
                         Subset(dataset, val_idx),
                         batch_size=self.batch_size,
-                        num_workers=8,
+                        num_workers=4,
                         pin_memory=True,
                         persistent_workers=True
                     )
@@ -251,6 +251,8 @@ class UNet:
                     )
                     fold_trainer.scaler = scaler  # pass scaler if needed
                     fold_trainer.train()
+                    # Draw fold validation masks
+                    fold_trainer.predict()
                     metrics = fold_trainer.evaluate()
                     all_metrics.append(metrics)
 
@@ -313,92 +315,6 @@ class UNet:
 
             self._plot_loss_curve()
 
-    def train2(self) -> None:
-        """
-        Train the U-Net model using the specified training configuration.
-        If k-fold cross-validation is enabled, it will perform k-fold training.
-        Otherwise, it will train on the provided training and validation datasets.
-        """
-        logger.info(f"Training model {self.model_name}")
-
-        if getattr(self, 'use_kfold', False):
-            # combine train, val, test
-            splits = ["train", "val", "test"]
-            datasets = [
-                MRIDataset(
-                    os.path.join(self.src_path, "images", s),
-                    os.path.join(self.src_path, "labels", s)
-                ) for s in splits
-            ]
-            # build group labels from filenames (assumes IDs before underscore)
-            group_labels = []
-            for ds in datasets:
-                for img_name in ds.images:
-                    pid = img_name.split('_')[0]
-                    group_labels.append(pid)
-
-            dataset = ConcatDataset(datasets)
-            gkf = GroupKFold(n_splits=self.kfold_n_splits)
-            all_metrics = []
-
-            for fold, (train_idx, val_idx) in enumerate(gkf.split(
-                X=np.arange(len(dataset)),
-                groups=group_labels
-            )):
-                logger.info(f"Starting fold {fold+1}/{self.kfold_n_splits}")
-                train_loader = DataLoader(
-                    Subset(dataset, train_idx),
-                    batch_size=self.batch_size,
-                    num_workers=2,
-                )
-                val_loader = DataLoader(
-                    Subset(dataset, val_idx),
-                    batch_size=self.batch_size,
-                    num_workers=2,
-                )
-                fold_trainer = UNet.from_kfold(
-                    self.config, fold, train_loader, val_loader
-                )
-                fold_trainer.train()
-                metrics = fold_trainer.evaluate()
-                all_metrics.append(metrics)
-
-                send_whatsapp_message(
-                    f"U-Net Fold {fold+1}/{self.kfold_n_splits} completed. "
-                    f"Metrics: {metrics}"
-                )
-
-            summary = self._compute_mean_std_metrics(all_metrics)
-            self._write_summary(summary)
-            send_whatsapp_message(
-                f"U-Net Cross-validation completed. Summary: {summary}"
-            )
-            return summary
-
-        # Standard training
-        best_val_loss = float("inf")
-        for epoch in range(self.epochs):
-            self.model.train()
-            epoch_loss = 0
-            for images, masks, _ in tqdm(self.train_loader, desc=f"Epoch {epoch+1}/{self.epochs}"):
-                images, masks = images.to(self.device), masks.to(self.device)
-                self.optimizer.zero_grad()
-                outputs = self.model(images)
-                loss = self.criterion(outputs, masks)
-                loss.backward()
-                self.optimizer.step()
-                epoch_loss += loss.item()
-            val_loss = self.validate()
-            self.scheduler.step(val_loss)
-            self.train_losses.append(epoch_loss/len(self.train_loader))
-            self.val_losses.append(val_loss)
-            logger.info(f"Epoch [{epoch+1}/{self.epochs}], Loss: {epoch_loss/len(self.train_loader):.4f}, Val Loss: {val_loss:.4f}")
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                torch.save(self.model.state_dict(), self.model_path)
-                logger.info(f"Saved best model to {self.model_path}")
-        self._plot_loss_curve()
-
     @classmethod
     def from_kfold(cls, config: TrainConfig, fold: int, train_loader, val_loader) -> "UNet":
         """
@@ -423,6 +339,7 @@ class UNet:
 
         base = os.path.basename(config.dst_path.rstrip('/'))
         instance.dst_path = os.path.join(config.dst_path, f"{base}_fold_{fold}")
+        instance.src_path = config.src_path
         instance.model_name = f"{base}_fold_{fold}"
         instance.model_path = os.path.join(instance.dst_path, "models", f"{instance.model_name}.pth")
         os.makedirs(instance.dst_path, exist_ok=True)
@@ -430,6 +347,7 @@ class UNet:
 
         instance.train_loader = train_loader
         instance.val_loader = val_loader
+        instance.test_loader = val_loader # Use val_loader for testing in k-fold
         instance.model = smp.Unet(
             encoder_name=instance.encoder_name,
             in_channels=1,
@@ -521,13 +439,22 @@ class UNet:
 
         os.makedirs(os.path.join(self.dst_path), exist_ok=True)
 
-        for i, (image, image_name) in enumerate(tqdm(self.test_loader, desc="Predicting")):
-            image = image.to(self.device)
+        for i, batch in enumerate(tqdm(self.test_loader, desc="Predicting")):
+            if len(batch) == 3:
+                images, _, image_names = batch
+            else:
+                images, image_names = batch
+
+            images = images.to(self.device)
+
             with torch.no_grad():
-                pred_mask = torch.sigmoid(self.model(image)).cpu().numpy().squeeze()
-            pred_img = ((pred_mask > 0.5) * 255).astype(np.uint8)
-            output_path = os.path.join(self.dst_path, image_name[0])
-            cv2.imwrite(output_path, pred_img)
+                preds = torch.sigmoid(self.model(images)).cpu().numpy()
+
+            for j in range(images.shape[0]):
+                pred_mask = preds[j, 0, :, :]
+                pred_img = ((pred_mask > 0.5) * 255).astype(np.uint8)
+                output_path = os.path.join(self.dst_path, image_names[j])
+                cv2.imwrite(output_path, pred_img)
 
         logger.info(f"Predictions saved in test directory: {self.dst_path}")
 
