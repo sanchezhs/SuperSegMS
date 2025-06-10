@@ -60,7 +60,7 @@ The following images illustrate the results of the segmentation process:
 ![Example of Segmentation](examples/01_segmentation_example.png)
 
 From left to right: 
-- Iriginal MRI image
+- Original MRI image
 - Original lesion mask
 - U-Net segmentation result
 - YOLOv11 segmentation result
