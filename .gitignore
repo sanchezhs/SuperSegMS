@@ -8,7 +8,6 @@ venv/
 *.pt
 *.pth
 *.zip
-*.png
 results*/
 MSLesSeg-Dataset/
 runs/
