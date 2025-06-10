@@ -31,7 +31,7 @@ The system follows this pipeline:
 
 MRI Volume → Slice Selection → Preprocessing → Super-Resolution (FSRCNN) → Model (U-Net / YOLOv11) → Postprocessing → Evaluation
 
-![System Architecture](images/system_architecture.png)
+![System Architecture](examples/system_architecture.png)
 
 # Installation
 To set up the project, follow these steps:
