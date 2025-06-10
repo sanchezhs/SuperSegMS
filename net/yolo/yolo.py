@@ -149,17 +149,6 @@ class YOLO:
                     project=fold_dir,
                     device="cuda",
                     verbose=True,
-                    # disable autoaugmentation for unet comparison
-                    hsv_h=0.0,
-                    hsv_s=0.0,
-                    hsv_v=0.0,
-                    translate=0.0,
-                    scale=0.0,
-                    fliplr=0.0,
-                    mosaic=0.0,
-                    erasing=0.0,
-                    auto_augment=None,
-                    augment=False,
                 )
 
                 # evaluate fold
@@ -224,17 +213,6 @@ class YOLO:
                 project=self.dst_path,
                 device="cuda",
                 verbose=True,
-                # disable autoaugmentation for unet comparison
-                hsv_h=0.0,
-                hsv_s=0.0,
-                hsv_v=0.0,
-                translate=0.0,
-                scale=0.0,
-                fliplr=0.0,
-                mosaic=0.0,
-                erasing=0.0,
-                auto_augment=None,
-                augment=False,
             )
 
     def predict(self, image_dir: Optional[Path] = None, pred_dir: Optional[Path] = None):
@@ -333,13 +311,17 @@ class YOLO:
             fn = np.logical_and(np.logical_not(pred_bin), gt_bin).sum()
             tn = np.logical_and(np.logical_not(pred_bin), np.logical_not(gt_bin)).sum()
 
-            # Compute metrics per image
-            iou         = tp / (tp + fp + fn) if (tp + fp + fn) > 0 else 1.0
-            dice        = (2 * tp) / (2 * tp + fp + fn) if (2 * tp + fp + fn) > 0 else 1.0
-            precision   = tp / (tp + fp) if (tp + fp) > 0 else 1.0
-            recall      = tp / (tp + fn) if (tp + fn) > 0 else 1.0
-            f1_score    = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
-            specificity = tn / (tn + fp) if (tn + fp) > 0 else 1.0
+            # Compute metrics
+            iou = tp / (tp + fp + fn) if (tp + fp + fn) > 0 else 0
+            dice = (2 * tp) / (2 * tp + fp + fn) if (2 * tp + fp + fn) > 0 else 0
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+            f1_score = (
+                2 * (precision * recall) / (precision + recall)
+                if (precision + recall) > 0
+                else 0
+            )
+            specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
 
             # Append metrics
             iou_list.append(iou)
@@ -375,6 +357,7 @@ class YOLO:
             logger.info(f"{k}: {v:.4f}")
 
         return avg_metrics
+   
     # ------------------------- Private Methods -------------------------
     def _create_yaml(self) -> None:
         """Create a data.yaml file for YOLO training or prediction.

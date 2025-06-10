@@ -1,4 +1,5 @@
 import json
+import math
 import time
 from pathlib import Path
 
@@ -87,8 +88,7 @@ class UNet:
         config: TrainConfig | EvaluateConfig | PredictConfig,
     ) -> None:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.encoder_name = "resnet50"
-        # self.encoder_name = "mit_b5"
+        self.encoder_name = "resnet34"
         self.config = config
         self.conf = 0.25
 
@@ -204,6 +204,9 @@ class UNet:
         """
         logger.info(f"Training model {self.model_name}")
 
+        # Initialize GradScaler for automatic mixed precision
+        scaler = torch.GradScaler()
+
         if self.use_kfold:
             # combine train, val, test
             splits = ["train", "val", "test"]
@@ -244,6 +247,7 @@ class UNet:
                 fold_trainer = UNet.from_kfold(
                     self.config, fold, train_loader, val_loader
                 )
+                fold_trainer.scaler = scaler
                 # Train the fold
                 fold_trainer.train()
 
@@ -251,7 +255,7 @@ class UNet:
                 all_train_hist.append(fold_trainer.train_losses)
                 all_val_hist.append(fold_trainer.val_losses)
 
-                # Predict the fold
+                # Draw fold validation masks
                 fold_trainer.predict()
 
                 # Evaluate the fold
@@ -277,23 +281,47 @@ class UNet:
         for epoch in range(self.epochs):
             self.model.train()
             epoch_loss = 0
-            for images, masks, _ in tqdm(self.train_loader, desc=f"Epoch {epoch+1}/{self.epochs}"):  
+            for images, masks, _ in tqdm(self.train_loader, desc=f"Epoch {epoch+1}/{self.epochs}"):
                 images, masks = images.to(self.device), masks.to(self.device)
                 self.optimizer.zero_grad()
-                outputs = self.model(images)
-                loss = self.criterion(outputs, masks)
-                loss.backward()
-                self.optimizer.step()
+
+                # Forward pass with mixed precision
+                with torch.cuda.amp.autocast(
+                    enabled=True,  dtype=torch.float16 if torch.cuda.is_available() else torch.float32
+                ):
+                    outputs = self.model(images)
+                    loss = self.criterion(outputs, masks)
+
+                # Backward pass with scaled gradients
+                scaler.scale(loss).backward()
+                scaler.step(self.optimizer)
+                scaler.update()
+
                 epoch_loss += loss.item()
-            val_loss = self.validate()
+
+            # Validation (no grad)
+            self.model.eval()
+            with torch.no_grad():
+                with torch.cuda.amp.autocast(
+                    enabled=True, dtype=torch.float16 if torch.cuda.is_available() else torch.float32
+                ):
+                    val_loss = self.validate()
+
+            # Scheduler step
             self.scheduler.step(val_loss)
-            self.train_losses.append(epoch_loss/len(self.train_loader))
+            self.train_losses.append(epoch_loss / len(self.train_loader))
             self.val_losses.append(val_loss)
-            logger.info(f"Epoch [{epoch+1}/{self.epochs}], Loss: {epoch_loss/len(self.train_loader):.4f}, Val Loss: {val_loss:.4f}")
-            if val_loss < best_val_loss:
+            logger.info(
+                f"Epoch [{epoch+1}/{self.epochs}], "
+                f"Loss: {epoch_loss/len(self.train_loader):.4f}, Val Loss: {val_loss:.4f}"
+            )
+
+            # Save best model
+            if epoch == 0 or (not math.isnan(val_loss) and val_loss < best_val_loss):
                 best_val_loss = val_loss
                 torch.save(self.model.state_dict(), self.model_path)
-                logger.info(f"Saved best model to {self.model_path}")
+                logger.info(f"Saved best mixed-precision model to {self.model_path}")
+
         self._plot_loss_curve()
 
     @classmethod
@@ -312,8 +340,7 @@ class UNet:
         instance.mode = "train"
         instance.conf = 0.25
         instance.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        instance.encoder_name = "resnet50"
-        # instance.encoder_name = "mit_b5"
+        instance.encoder_name = "resnet34"
         instance.config = config
         instance.batch_size = config.batch_size
         instance.epochs = config.epochs
@@ -322,12 +349,14 @@ class UNet:
 
         base = config.dst_path.name
         instance.dst_path = config.dst_path / f"{base}_fold_{fold}"
+        instance.src_path = config.src_path
         instance.model_name = f"{base}_fold_{fold}"
         instance.model_path = instance.dst_path / "models" / f"{instance.model_name}.pth"
         (instance.dst_path / "models").mkdir(parents=True, exist_ok=True)
 
         instance.train_loader = train_loader
         instance.val_loader = val_loader
+        instance.test_loader = val_loader
         instance.model = smp.Unet(
             encoder_name=instance.encoder_name,
             in_channels=1,
@@ -444,21 +473,29 @@ class UNet:
         """
         logger.info(f"Predicting images in {self.src_path} and saving to {self.dst_path}")
         self.model.load_state_dict(
-            torch.load(str(self.model_path), map_location=self.device)
+            torch.load(self.model_path, map_location=self.device)
         )
         self.model.eval()
 
         if not self.dst_path.exists():
-            logger.info(f"Creating destination directory: {self.dst_path}")
             self.dst_path.mkdir(parents=True, exist_ok=True)
 
-        for i, (image, image_name) in enumerate(tqdm(self.test_loader, desc="Predicting")):
-            image = image.to(self.device)
+        for i, batch in enumerate(tqdm(self.test_loader, desc="Predicting")):
+            if len(batch) == 3:
+                images, _, image_names = batch
+            else:
+                images, image_names = batch
+
+            images = images.to(self.device)
+
             with torch.no_grad():
-                pred_mask = torch.sigmoid(self.model(image)).cpu().numpy().squeeze()
-            pred_img = ((pred_mask > self.conf) * 255).astype(np.uint8)
-            output_path = self.dst_path / f"{image_name[0]}"
-            cv2.imwrite(str(output_path), pred_img)
+                preds = torch.sigmoid(self.model(images)).cpu().numpy()
+
+            for j in range(images.shape[0]):
+                pred_mask = preds[j, 0, :, :]
+                pred_img = ((pred_mask > 0.5) * 255).astype(np.uint8)
+                output_path = self.dst_path / image_names[j]
+                cv2.imwrite(output_path, pred_img)
 
         logger.info(f"Predictions saved in test directory: {self.dst_path}")
 
@@ -481,21 +518,24 @@ class UNet:
         Returns:
             tuple: A tuple containing IoU, Dice score, precision, recall, F1 score, and specificity.
         """
-        pred_bin = (pred > self.conf).astype(np.uint8)
-        gt_bin = (mask > 0.5).astype(np.uint8)
+        pred_bin = (pred > 0.5).astype(np.uint8)
+        mask_bin = (mask > 0.5).astype(np.uint8)
 
-        tp = np.logical_and(pred_bin, gt_bin).sum()
-        fp = np.logical_and(pred_bin, np.logical_not(gt_bin)).sum()
-        fn = np.logical_and(np.logical_not(pred_bin), gt_bin).sum()
-        tn = np.logical_and(np.logical_not(pred_bin), np.logical_not(gt_bin)).sum()
+        tp = np.logical_and(pred_bin, mask_bin).sum()
+        fp = np.logical_and(pred_bin, np.logical_not(mask_bin)).sum()
+        fn = np.logical_and(np.logical_not(pred_bin), mask_bin).sum()
+        tn = np.logical_and(np.logical_not(pred_bin), np.logical_not(mask_bin)).sum()
 
-        # Compute each metric per image
-        iou         = tp / (tp + fp + fn) if (tp + fp + fn) > 0 else 1.0
-        dice        = (2 * tp) / (2 * tp + fp + fn) if (2 * tp + fp + fn) > 0 else 1.0
-        precision   = tp / (tp + fp) if (tp + fp) > 0 else 1.0
-        recall      = tp / (tp + fn) if (tp + fn) > 0 else 1.0
-        f1_score    = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
-        specificity = tn / (tn + fp) if (tn + fp) > 0 else 1.0
+        iou = tp / (tp + fp + fn) if (tp + fp + fn) > 0 else 0
+        dice = (2.0 * tp) / (2.0 * tp + fp + fn) if (2.0 * tp + fp + fn) > 0 else 0
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+        f1_score = (
+            2 * (precision * recall) / (precision + recall)
+            if (precision + recall) > 0
+            else 0
+        )
+        specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
 
         return iou, dice, precision, recall, f1_score, specificity
 
