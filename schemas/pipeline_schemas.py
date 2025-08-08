@@ -82,7 +82,6 @@ class TrainConfig(BaseModel):
     batch_size: int = 8
     epochs: int = 10
     learning_rate: float = 1e-3
-    limit_resources: bool = False
     use_kfold: bool = False
     kfold_n_splits: int = 5
     kfold_seed: int = 42
@@ -156,14 +155,31 @@ class SegmentationMetrics(BaseModel):
     dice_score: float
     precision: float
     recall: float
-    f1_score: float
-    specificity: Optional[float] = None
+    specificity: float
     inference_time: Optional[float] = None
 
     def __str__(self):
         return (
             f"IoU: {self.iou:.4f}, Dice: {self.dice_score:.4f}, "
-            f"Precision: {self.precision:.4f}, Recall: {self.recall:.4f}, F1: {self.f1_score:.4f}, "
+            f"Precision: {self.precision:.4f}, Recall: {self.recall:.4f}, "
             f"Specificity: {self.specificity if self.specificity else 'N/A'}, "
             f"Inference Time: {self.inference_time if self.inference_time else 'N/A'}s"
         )
+    
+    def __repr__(self):
+        return (
+            f"SegmentationMetrics(iou={self.iou:.4f}, "
+            f"dice_score={self.dice_score:.4f}, "
+            f"precision={self.precision:.4f}, "
+            f"recall={self.recall:.4f}, "
+            f"specificity={self.specificity if self.specificity else 'N/A'}, "
+            f"inference_time={self.inference_time if self.inference_time else 'N/A'})"
+        )
+    
+    def write_to_file(self, path: Path) -> None:
+        """Write metrics to a file.
+        Args:
+            - path: Path to the file where metrics will be saved.
+        """
+        with open(path, "w") as f:
+            f.write(self.model_dump_json(indent=4))
