@@ -17,7 +17,6 @@ from schemas.pipeline_schemas import (
     Net,
     PreprocessConfig,
     Strategy,
-    SuperScale,
     KFoldPrep,
 )
 from steps.preprocessing.savers.savers import PNGSaver, YOLOSegSaver
@@ -27,7 +26,6 @@ from steps.preprocessing.slicers.selectors import (
     TopCenteredBlockSelector,
 )
 from steps.preprocessing.splitters.holdout_splitter import HoldoutPatientSplitter
-# from steps.preprocessing.splitters.random_splitter import RandomPatientSplitter
 from steps.preprocessing.transformers.transformers import (
     ComposeTransformer,
     FlairNormalizeTransformer,
