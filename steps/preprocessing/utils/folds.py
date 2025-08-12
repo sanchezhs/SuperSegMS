@@ -18,7 +18,6 @@ def split_minival(images_dir: Path, frac: float, seed: int) -> Tuple[List[Path],
     rng.shuffle(patients)
     n_val = max(1, int(round(frac * len(patients))))
     val_patients = set(patients[:n_val])
-    train_patients = set(patients[n_val:])
     train_imgs, val_imgs = [], []
     for pid, lst in groups.items():
         (val_imgs if pid in val_patients else train_imgs).extend(sorted(lst))

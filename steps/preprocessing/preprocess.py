@@ -90,8 +90,6 @@ class PreprocessingPipeline:
     def _materialize_minival_and_folds(self, mini_val_frac: float, n_splits: int, seed: int, link_mode: str):
         train_img = self.dst_root / "images" / "train"
         train_lbl = self.dst_root / "labels" / "train"
-        # test_img  = self.dst_root / "images" / "test"
-        # test_lbl  = self.dst_root / "labels" / "test"
 
         # ---- Mini-val for final retrain
         fr_root = self.dst_root / "final_retrain"

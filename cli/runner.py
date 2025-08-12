@@ -94,7 +94,7 @@ def expand_experiment_range(expr: str) -> list[str]:
         start, end = expr.split("-")
         if len(start) == 1 and len(end) == 1 and start.isalpha() and end.isalpha():
             return [chr(i) for i in range(ord(start), ord(end) + 1)]
-    return expr.split(",")
+    return [expr]
 
 def run_pipeline(args):
     """
@@ -109,11 +109,7 @@ def run_pipeline(args):
     # Expand and validate experiment IDs
     experiment_ids: list[str] = []
     for expr in args.experiment_ids.split(","):
-        expr = expr.strip()
-        if "-" in expr:
-            experiment_ids.extend(expand_experiment_range(expr))
-        else:
-            experiment_ids.append(expr)
+        experiment_ids.extend(expand_experiment_range(expr.strip()))
 
     # Parse steps and validate against ALL_STEPS
     steps = [s.strip() for s in args.steps.split(",")]
@@ -130,7 +126,7 @@ def run_pipeline(args):
             # Skip evaluation for k-fold training
             if step == "evaluate" and config.train_config and config.train_config.use_kfold:
                 logger.info(f"Skipping evaluation for '{experiment_id}' because use_kfold=True.")
-                break
+                continue
             run_step(config)
 
         # If upload flag is set, upload results directory to the bucket
