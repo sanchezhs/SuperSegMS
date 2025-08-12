@@ -2,9 +2,16 @@ import json
 from pathlib import Path
 from loguru import logger
 from schemas.pipeline_schemas import VisualizeConfig, SegmentationMetrics
+from schemas.pipeline_schemas import Net
 from steps.visualization.core.plotter import MetricsPlotter
 
 def visualize(config: VisualizeConfig) -> None:
+    if config.net != Net.UNET and config.net != Net.YOLO:
+        raise ValueError(f"Unsupported network type for visualization: {config.net}. Only UNET and YOLO are supported.")
+
+    if not config.pred_path.exists():
+        raise FileNotFoundError(f"Prediction path does not exist: {config.pred_path}")
+
     metrics_path = Path(config.pred_path) / "metrics.json"
     if not metrics_path.exists():
         raise FileNotFoundError(f"metrics.json not found at {metrics_path}. Run evaluate first.")
