@@ -46,7 +46,7 @@ class YOLO:
         self.config = config
         self.src_path = config.src_path
 
-        self.metrics_calculator_cls = metrics_calculator_cls
+        self._metrics_calculator_cls = metrics_calculator_cls or MetricsCalculator
         self._metrics_calculator = None
 
         if not self.src_path.exists():
@@ -71,10 +71,7 @@ class YOLO:
 
     @property
     def metrics_calculator(self) -> "MetricsCalculator":
-        """Lazily instantiate and return the metrics calculator."""
         if self._metrics_calculator is None:
-            if self._metrics_calculator_cls is None:
-                self._metrics_calculator_cls = MetricsCalculator
             self._metrics_calculator = self._metrics_calculator_cls()
         return self._metrics_calculator
 
@@ -107,6 +104,7 @@ class YOLO:
         self.gt_path = config.gt_path
 
         self.metrics = None
+        self.pred_path.mkdir(parents=True, exist_ok=True)
 
         if not self.pred_path.exists():
             raise FileNotFoundError(
@@ -125,124 +123,265 @@ class YOLO:
         return self._run_kfold() if self.use_kfold else self._run_single_training()
         
     def _run_kfold(self) -> Dict:
-        fold_metrics = []
-        image_mask_group_quads = []
+        """
+        Prefer materialized folds under <src_path>/cv_folds/fold_*/... .
+        If not found, fallback to dynamic GroupKFold over <src_path>/images/train.
+        All outputs (weights, predictions, metrics) are written under self.dst_path.
+        """
+        cv_root = self.src_path / "cv_folds"
+        fold_metrics: list[SegmentationMetrics] = []
 
-        # We use all images and masks from train, val, and test splits
-        # for the k-fold cross-validation.
-        for split in ["train", "val", "test"]:
-            img_dir = self.src_path / "images" / split
-            mask_dir = self.src_path / "labels" / split
-            for fname in sorted(img_dir.iterdir()):
-                if fname.name.lower().endswith((".png", ".jpg", ".jpeg")):
-                    base = fname.stem
-                    mask_name = f"{base}.txt"
-                    img_path = img_dir / f"{base}.png"
-                    txt_mask_path = mask_dir / mask_name
-                    img_mask_path = mask_dir / f"{base}.png"
-                    if not txt_mask_path.exists():
-                        raise FileNotFoundError(f"Missing mask for {img_path}")
-                    group_id = base.split('_')[0]  # e.g., "P11"
-                    image_mask_group_quads.append((img_path, txt_mask_path, img_mask_path, group_id))
+        if cv_root.exists():
+            logger.info(f"[YOLO] Using materialized folds at: {cv_root}")
+            fold_dirs = sorted(
+                [p for p in cv_root.iterdir() if p.is_dir() and p.name.startswith("fold_")],
+                key=lambda p: int(p.name.split("_")[-1])
+            )
+            if not fold_dirs:
+                logger.warning(f"No folds found inside {cv_root}. Falling back to dynamic GroupKFold.")
+                return self._run_kfold_dynamic()
 
-        all_img_paths, all_txt_mask_paths, all_img_mask_paths, group_labels = zip(*image_mask_group_quads)
+            for i, fold_src in enumerate(fold_dirs, start=1):
+                out_fold_dir = self.dst_path / fold_src.name
+                out_fold_dir.mkdir(parents=True, exist_ok=True)
+
+                # data.yaml points to SOURCE fold (data lives there)
+                data_yaml = {
+                    "path": str(fold_src),
+                    "train": "images/train",
+                    "val": "images/val",
+                    "nc": 1,
+                    "names": ["lesion"],
+                    "task": "segment",
+                }
+                fold_yaml = out_fold_dir / "data.yaml"
+                with open(fold_yaml, "w") as f:
+                    yaml.dump(data_yaml, f, default_flow_style=False)
+
+                # derive size from source fold train image
+                train_imgs = sorted((fold_src / "images" / "train").iterdir())
+                if not train_imgs:
+                    raise RuntimeError(f"No training images in {fold_src / 'images' / 'train'}")
+                img = cv2.imread(str(train_imgs[0]), cv2.IMREAD_UNCHANGED)
+                if img is None:
+                    raise ValueError(f"Could not load image {train_imgs[0]}")
+                h, w = img.shape[:2]
+
+                # train -> outputs under out_fold_dir
+                model = uYOLO(self.model_path)
+                model.train(
+                    data=fold_yaml,
+                    epochs=self.epochs,
+                    batch=self.batch_size,
+                    save=True,
+                    imgsz=(h, w),
+                    project=out_fold_dir,
+                    device="cuda",
+                    verbose=True,
+                )
+
+                # predict + evaluate: read from SOURCE fold, write under OUT
+                pred_dir = out_fold_dir / "predictions"
+                best_weights = out_fold_dir / "train" / "weights" / "best.pt"
+
+                eval_cfg = EvaluateConfig(
+                    net=Net.YOLO,
+                    src_path=fold_src,                 # data source
+                    pred_path=pred_dir,                # outputs here
+                    model_path=best_weights,
+                    gt_path=fold_src / "labels" / "val",
+                )
+                evaluator = YOLO(eval_cfg)
+                evaluator.predict(
+                    image_dir=fold_src / "images" / "val",
+                    pred_dir=pred_dir,
+                )
+                metrics = evaluator.evaluate()
+                fold_metrics.append(metrics)
+
+                send_whatsapp_message(
+                    f"YOLO Fold {i}/{len(fold_dirs)} completed. "
+                    f"Metrics: {metrics.model_dump_json()}"
+                )
+
+            summary = self.metrics_calculator.kfold_summary(fold_metrics)
+            self.metrics_calculator.write_kfold_summary(summary, self.dst_path / "cv_summary.json")
+            send_whatsapp_message(f"YOLO Cross-validation completed. Summary: {json.dumps(summary, indent=4)}")
+            return summary
+
+        # ---------- Fallback dynamic K-Fold ----------
+        logger.info("[YOLO] Materialized folds not found. Falling back to dynamic GroupKFold.")
+        return self._run_kfold_dynamic()
+
+    def _run_kfold_dynamic(self) -> Dict:
+        """
+        Build GroupKFold over <src_path>/images/train grouped by patient,
+        materialize temporary fold data under <dst_path>/_dyn_folds/,
+        and write all training artifacts under <dst_path>/fold_i/.
+        """
+        fold_metrics: list[SegmentationMetrics] = []
+
+        img_dir = self.src_path / "images" / "train"
+        mask_dir = self.src_path / "labels" / "train"
+        if not img_dir.exists() or not mask_dir.exists():
+            raise FileNotFoundError(f"Missing train split at {img_dir} or {mask_dir}")
+
+        # collect samples (image, yolo_txt, gt_mask_png, group_id)
+        samples = []
+        for img_path in sorted(img_dir.iterdir()):
+            if img_path.suffix.lower() not in (".png", ".jpg", ".jpeg"):
+                continue
+            stem = img_path.stem
+            txt = mask_dir / f"{stem}.txt"
+            gt  = mask_dir / f"{stem}.png"
+            if not txt.exists():
+                raise FileNotFoundError(f"Missing YOLO txt for {img_path}")
+            if not gt.exists():
+                raise FileNotFoundError(f"Missing GT mask PNG for {img_path}")
+            group = stem.split("_")[0]
+            samples.append((img_path, txt, gt, group))
+
+        if not samples:
+            raise RuntimeError("No training samples to build dynamic CV folds.")
+
+        all_imgs, all_txts, all_gts, groups = zip(*samples)
+
         gkf = GroupKFold(n_splits=self.kfold_n_splits)
+        dyn_root = self.dst_path / "_dyn_folds"
+        dyn_root.mkdir(parents=True, exist_ok=True)
 
-        for fold, (train_idx, val_idx) in enumerate(
-            gkf.split(all_img_paths, groups=group_labels)
-        ):
-            fold_dir = self.dst_path / f"fold_{fold}"
-            for split in ["train", "val"]:
-                (fold_dir / "images" / split).mkdir(parents=True, exist_ok=True)
-                (fold_dir / "labels" / split).mkdir(parents=True, exist_ok=True)
+        for i, (tr_idx, va_idx) in enumerate(gkf.split(all_imgs, groups=groups), start=1):
+            # materialize fold data under dst_path/_dyn_folds/fold_i
+            fold_src = dyn_root / f"fold_{i}"
+            for sub in ("images/train", "images/val", "labels/train", "labels/val"):
+                (fold_src / sub).mkdir(parents=True, exist_ok=True)
 
-            for idx in train_idx:
-                shutil.copy2(all_img_paths[idx], fold_dir / "images/train")
-                shutil.copy2(all_txt_mask_paths[idx], fold_dir / "labels/train")
-                shutil.copy2(all_img_mask_paths[idx], fold_dir / "labels/train")
-            for idx in val_idx:
-                img_path = all_img_paths[idx]
-                txt_mask_path = all_txt_mask_paths[idx]
-                img_mask_path = all_img_mask_paths[idx]
-                shutil.copy2(img_path, fold_dir / "images" / "val" / img_path.name)
-                shutil.copy2(txt_mask_path, fold_dir / "labels" / "val" / txt_mask_path.name)
-                shutil.copy2(img_mask_path, fold_dir / "labels" / "val" / img_mask_path.name)
+            # copy files
+            for idx in tr_idx:
+                shutil.copy2(all_imgs[idx], fold_src / "images" / "train" / all_imgs[idx].name)
+                shutil.copy2(all_txts[idx], fold_src / "labels" / "train" / all_txts[idx].name)
+                shutil.copy2(all_gts[idx],  fold_src / "labels" / "train" / all_gts[idx].name)
+            for idx in va_idx:
+                shutil.copy2(all_imgs[idx], fold_src / "images" / "val" / all_imgs[idx].name)
+                shutil.copy2(all_txts[idx], fold_src / "labels" / "val" / all_txts[idx].name)
+                shutil.copy2(all_gts[idx],  fold_src / "labels" / "val" / all_gts[idx].name)
 
-            # write fold-specific YAML
+            # outputs under dst_path/fold_i
+            out_fold_dir = self.dst_path / f"fold_{i}"
+            out_fold_dir.mkdir(parents=True, exist_ok=True)
+
+            # data.yaml points to dynamic SOURCE fold we just materialized
             data_yaml = {
-                "path": str(fold_dir),
+                "path": str(fold_src),
                 "train": "images/train",
                 "val": "images/val",
                 "nc": 1,
                 "names": ["lesion"],
                 "task": "segment",
             }
-            fold_yaml = fold_dir / "data.yaml"
+            fold_yaml = out_fold_dir / "data.yaml"
             with open(fold_yaml, "w") as f:
                 yaml.dump(data_yaml, f, default_flow_style=False)
-            
-            # train model
+
+            # image size
+            tr_imgs = sorted((fold_src / "images" / "train").iterdir())
+            if not tr_imgs:
+                raise RuntimeError(f"No training images in {fold_src / 'images' / 'train'}")
+            img = cv2.imread(str(tr_imgs[0]), cv2.IMREAD_UNCHANGED)
+            if img is None:
+                raise ValueError(f"Could not load image {tr_imgs[0]}")
+            h, w = img.shape[:2]
+
+            # train
             model = uYOLO(self.model_path)
             model.train(
                 data=fold_yaml,
                 epochs=self.epochs,
                 batch=self.batch_size,
                 save=True,
-                imgsz=self._get_image_size(),
-                project=fold_dir,
+                imgsz=(h, w),
+                project=out_fold_dir,
                 device="cuda",
                 verbose=True,
             )
 
-            # evaluate fold
+            # predict + evaluate
+            pred_dir = out_fold_dir / "predictions"
+            best_weights = out_fold_dir / "train" / "weights" / "best.pt"
+
             eval_cfg = EvaluateConfig(
                 net=Net.YOLO,
-                src_path=fold_dir,
-                pred_path=fold_dir / "predictions",
-                model_path=fold_dir / "train" / "weights" / "best.pt",
-                gt_path=fold_dir / "labels" / "val",
+                src_path=fold_src,                # dynamic data we built
+                pred_path=pred_dir,               # outputs here
+                model_path=best_weights,
+                gt_path=fold_src / "labels" / "val",
             )
             evaluator = YOLO(eval_cfg)
-
-            # predict on validation set
             evaluator.predict(
-                image_dir=fold_dir / "images" / "val",
-                pred_dir=fold_dir / "predictions",
+                image_dir=fold_src / "images" / "val",
+                pred_dir=pred_dir,
             )
-            
-            # evaluate predictions
             metrics = evaluator.evaluate()
             fold_metrics.append(metrics)
 
             send_whatsapp_message(
-                f"YOLO Fold {fold+1}/{self.kfold_n_splits} completed. "
+                f"YOLO Fold {i}/{self.kfold_n_splits} completed. "
                 f"Metrics: {json.dumps(metrics.to_dict(), indent=4)}"
             )
 
         summary = self.metrics_calculator.kfold_summary(fold_metrics)
-        self.metrics_calculator.write_kfold_summary(
-            summary,
-            output_path=self.dst_path / "cv_summary.json",
-        )
-        send_whatsapp_message(
-            f"YOLO Cross-validation completed. Summary: {json.dumps(summary, indent=4)}"
-        )
-
+        self.metrics_calculator.write_kfold_summary(summary, self.dst_path / "cv_summary.json")
+        send_whatsapp_message(f"YOLO Cross-validation completed. Summary: {json.dumps(summary, indent=4)}")
         return summary
 
     def _run_single_training(self) -> None:
-        self._create_yaml()
+        """
+        Single training run. If 'final_retrain/{train,val}' exists, use it;
+        otherwise fall back to root images/{train,val}.
+        """
+        fr_root = self.src_path / "final_retrain"
+        if (fr_root / "images" / "train").exists() and (fr_root / "images" / "val").exists():
+            data_yaml = {
+                "path": str(fr_root),
+                "train": "images/train",
+                "val": "images/val",
+                "nc": 1,
+                "names": ["lesion"],
+                "task": "segment",
+            }
+            fold_yaml = self.dst_path / "data.yaml"
+            with open(fold_yaml, "w") as f:
+                yaml.dump(data_yaml, f, default_flow_style=False)
+            yaml_to_use = fold_yaml
+            # derive size from fr train
+            train_imgs = sorted((fr_root / "images" / "train").iterdir())
+            if not train_imgs:
+                raise FileNotFoundError(f"No images found in {fr_root / 'images' / 'train'}")
+            sample = str(train_imgs[0])
+            img = cv2.imread(sample, cv2.IMREAD_UNCHANGED)
+            if img is None:
+                raise ValueError(f"Could not load image {sample}")
+            h, w = img.shape[:2]
+            imgsz = (h, w)
+        else:
+            # fallback to root images/{train,val}
+            self._create_yaml()
+            yaml_to_use = self.yaml_path
+            h, w = self._get_image_size()
+            imgsz = (h, w)
+
         model = uYOLO(self.model_path)
         model.train(
-            data=self.yaml_path,
+            data=yaml_to_use,
             epochs=self.epochs,
             batch=self.batch_size,
             save=True,
-            imgsz=self._get_image_size(),
+            imgsz=imgsz,
             project=self.dst_path,
             device="cuda",
             verbose=True,
         )
+
 
     def predict(self, image_dir: Optional[Path] = None, pred_dir: Optional[Path] = None):
         """Run inference on images using the trained YOLO model.
@@ -275,7 +414,7 @@ class YOLO:
 
         for img_file in image_files:
             start = time.perf_counter()
-            model.pre(
+            model.predict(
                 source=img_file,
                 project=pred_dir,
                 name=".",  # disables subfolder creation
@@ -316,6 +455,7 @@ class YOLO:
         gts = []
         times = []
 
+
         for name in image_names:
             pred_mask = cv2.imread(str(mask_dir / name.name), cv2.IMREAD_GRAYSCALE)
             gt_mask = cv2.imread(str(self.gt_path / name.name), cv2.IMREAD_GRAYSCALE)
@@ -328,13 +468,20 @@ class YOLO:
         preds_np = np.stack(preds)
         gts_np = np.stack(gts)
 
+
+
         # Compute metrics
-        avg_metrics = self.metrics_calculator.evaluate_batch(
+        avg_metrics, per_image = self.metrics_calculator.evaluate_batch(
             preds=preds_np,
             gts=gts_np,
             times=times,
             threshold=127  # 8-bit (0-255)
         )
+
+        # Add lesion area in pixels to per_image metrics
+        areas = (gts_np > 0.5).sum(axis=(1,2))
+        for i, a in enumerate(areas.tolist()):
+            per_image[i]["lesion_area_px"] = float(a)
 
         # Save to JSON
         self.metrics = SegmentationMetrics(
@@ -342,8 +489,10 @@ class YOLO:
         )
         metrics_path = self.pred_path / "metrics.json"
         self.metrics.write_to_file(metrics_path)
-        logger.success(f"Metrics saved to {metrics_path}")
+        (self.pred_path / "per_image_metrics.json").write_text(json.dumps(per_image, indent=2))
 
+        logger.info(f"Metrics saved at {self.pred_path / 'metrics.json'}")
+        logger.info(f"Per-image metrics saved at {self.pred_path / 'per_image_metrics.json'}")
         logger.info(f"Average metrics:\n{self.metrics}")
 
         return self.metrics
@@ -366,10 +515,8 @@ class YOLO:
             yaml.dump(data_yaml, f, default_flow_style=False)
 
     def _draw_predictions(self, pred_dir: Path, image_dir: Path) -> None:
-        """Draw predictions on images and save them as masks.
-        Args:
-            pred_dir (str): Directory where predictions are stored.
-            image_dir (str): Directory containing the images to draw predictions on.
+        """
+        Draw predictions on images and save them as binary masks.
         """
         output_dir = pred_dir / "masks"
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -380,24 +527,20 @@ class YOLO:
                 f"Prediction directory {prediction_dir} does not exist. Did you run the predict step?"
             )
 
-        image_files = sorted(
-            [f for f in image_dir.iterdir() if f.suffix.lower() in ('.png', '.jpg', '.jpeg')]
-        )
+        image_files = sorted([f for f in image_dir.iterdir() if f.suffix.lower() in ('.png', '.jpg', '.jpeg')])
+        img_h, img_w = self._get_image_size()
 
-        img_size = self._get_image_size()
-
-        for idx, image_file in enumerate(image_files):
+        for image_file in image_files:
             base_name = image_file.stem
             prediction_path = prediction_dir / f"{base_name}.txt"
-            image_path = image_dir / image_file.name
 
-            img = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
+            img = cv2.imread(str(image_dir / image_file.name), cv2.IMREAD_GRAYSCALE)
             if img is None:
-                logger.warning(f"Could not load image {image_path}")
+                logger.warning(f"Could not load image {image_file}")
                 continue
 
-            img = cv2.resize(img, img_size[:2])
-            mask = np.zeros_like(img)
+            # resize target shape for mask
+            mask = np.zeros((img_h, img_w), dtype=np.uint8)
 
             if not prediction_path.exists():
                 logger.warning(f"Prediction file not found for {image_file}. Saving empty mask.")
@@ -406,8 +549,6 @@ class YOLO:
                     lines = f.readlines()
 
                 if not lines:
-                    # If the prediction file is empty, log a warning and save an empty mask
-                    # we want to save an empty mask to avoid a bias in evaluation
                     logger.info(f"No predictions for {image_file}. Saving empty mask.")
                 else:
                     for line in lines:
@@ -417,29 +558,29 @@ class YOLO:
                             if len(coords) % 2 != 0:
                                 coords = coords[:-1]
                             if len(coords) >= 4:
-                                points = np.array(coords).reshape(-1, 2)
-                                points[:, 0] *= img_size[1]
-                                points[:, 1] *= img_size[0]
-                                points = points.astype(np.int32)
-                                cv2.fillPoly(mask, [points], color=255)
+                                pts = np.array(coords, dtype=np.float32).reshape(-1, 2)
+                                pts[:, 0] *= img_w
+                                pts[:, 1] *= img_h
+                                pts = pts.astype(np.int32)
+                                cv2.fillPoly(mask, [pts], color=255)
 
-            cv2.imwrite(str(output_dir / f"{base_name}.png" / mask))
+            cv2.imwrite(str(output_dir / f"{base_name}.png"), mask)
 
         logger.success(f"Predictions drawn and saved correctly to {output_dir}")
 
-    def _get_image_size(self) -> tuple[int, int, int]:
-        """Get the image size from the data.yaml file.
-        Returns:
-            tuple: (height, width, channels) of the first image in the training set.
+    def _get_image_size(self) -> tuple[int, int]:
         """
-        train_path = self.src_path / "images" / "train"
-        image_files = list(train_path.iterdir())
+        Return (H, W) from a sample training image.
+        Prefer final_retrain/images/train if present; else root images/train.
+        """
+        base = self.src_path
+        fr_train = base / "final_retrain" / "images" / "train"
+        train_path = fr_train if fr_train.exists() else base / "images" / "train"
+        image_files = [p for p in train_path.iterdir() if p.suffix.lower() in (".png", ".jpg", ".jpeg")]
         if not image_files:
             raise FileNotFoundError(f"No images found in {train_path}")
-        
-        first_image = image_files[0]
-        img = cv2.imread(str(first_image))
+        img = cv2.imread(str(image_files[0]), cv2.IMREAD_UNCHANGED)
         if img is None:
-            raise ValueError(f"Could not load image {first_image}")
-        
-        return img.shape  # (height, width, channels)
+            raise ValueError(f"Could not load image {image_files[0]}")
+        h, w = img.shape[:2]
+        return (h, w)

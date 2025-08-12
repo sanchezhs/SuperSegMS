@@ -1,13 +1,13 @@
 from enum import Enum, IntEnum
 from pathlib import Path
-from typing import Optional, Tuple, Union
+from typing import Literal, Optional, Tuple, Union
 
 from pydantic import BaseModel, Field, model_validator
 
 # (X,Y,Z) = (width, height, depth)
 NIFTI_SIZE = (182, 218)
 DEF_RESIZE = (320, 320)
-ALL_STEPS = ["preprocess", "train", "predict", "evaluate"]
+ALL_STEPS = ["preprocess", "train", "predict", "evaluate", "visualize"]
 
 # Example default values for GCS bucket and destination path
 DEFAULT_BUCKET = "tfm-training-results"
@@ -54,6 +54,12 @@ class EnvConfig(BaseModel):
         None, description="Path to GCS credentials JSON file"
     )
 
+class KFoldPrep(BaseModel):
+    enable: bool = False
+    n_splits: int = 5
+    seed: int = 42
+    mini_val_frac: float = 0.10
+    link_mode: Literal["hardlink", "copy"] = "hardlink"
 
 class PreprocessConfig(BaseModel):
     """Configuration for preprocessing data."""
@@ -68,6 +74,7 @@ class PreprocessConfig(BaseModel):
     block_size: Optional[int] = Field(None, description="Block size for lesion detection, if applicable")
     threshold: Optional[int] = Field(None, description="Threshold for lesion detection, if applicable")
     resize_method: Optional[ResizeMethod] = None
+    kfold: Optional[KFoldPrep] = None
 
     def write_config(self) -> None:
         """Write the configuration to a JSON file."""
@@ -117,6 +124,23 @@ class PredictConfig(BaseModel):
         with open(self.dst_path / "predict_params.json", "w") as f:
             f.write(self.model_dump_json(indent=4))
 
+class VisualizeConfig(BaseModel):
+    """
+    Config for the visualization step: reads metrics.json and renders plots.
+    """
+    net: Net
+    pred_path: Path
+
+    # Optional customizations
+    plots_dir: Optional[Path] = None         # default: pred_path.parent / "plots"
+    plots_title: Optional[str] = None        # default: f"{net.name} Evaluation"
+    # Optional: choose a filename prefix (e.g., model name)
+    plot_prefix: Optional[str] = None        # default: stem of model_path if provided
+    model_path: Optional[Path] = None
+
+    def write_config(self) -> None:
+        (self.pred_path / "visualize_params.json").write_text(self.model_dump_json(indent=4))
+
 class PipelineConfig(BaseModel):
     """Configuration for the entire pipeline."""
     experiment_id: str
@@ -125,6 +149,7 @@ class PipelineConfig(BaseModel):
     train_config: Optional[TrainConfig] = None
     evaluate_config: Optional[EvaluateConfig] = None
     predict_config: Optional[PredictConfig] = None
+    visualize_config: Optional[VisualizeConfig] = None
 
     @model_validator(mode="after")
     def validate_single_config(cls, values):
@@ -133,6 +158,7 @@ class PipelineConfig(BaseModel):
             values.train_config,
             values.evaluate_config,
             values.predict_config,
+            values.visualize_config,
         ]
         if sum(config is not None for config in configs) != 1:
             raise ValueError("Exactly one configuration option must be provided.")
@@ -146,6 +172,7 @@ class PipelineConfig(BaseModel):
             or self.train_config
             or self.evaluate_config
             or self.predict_config
+            or self.visualize_config
         )
 
 

@@ -4,11 +4,12 @@ import sys
 from loguru import logger
 from pydantic import ValidationError
 
-from schemas.pipeline_schemas import ALL_STEPS, EvaluateConfig, PipelineConfig, PredictConfig, PreprocessConfig, TrainConfig
+from schemas.pipeline_schemas import ALL_STEPS, EvaluateConfig, PipelineConfig, PredictConfig, PreprocessConfig, TrainConfig, VisualizeConfig
 from steps.evaluation.evaluate import evaluate
 from steps.prediction.predict import predict
 from steps.preprocessing.preprocess import preprocess
 from steps.training.train import train
+from steps.visualization.visualize import visualize
 from utils.gcs import upload_file_to_bucket
 
 def parse_json_experiment(config_path: str, experiment_id: str, step: str) -> PipelineConfig:
@@ -50,6 +51,7 @@ def parse_json_experiment(config_path: str, experiment_id: str, step: str) -> Pi
             train_config=TrainConfig(**step_config) if step == "train" else None,
             predict_config=PredictConfig(**step_config) if step == "predict" else None,
             evaluate_config=EvaluateConfig(**step_config) if step == "evaluate" else None,
+            visualize_config=VisualizeConfig(**step_config) if step == "visualize" else None,
         )
     except ValidationError as e:
         logger.error(f"Validation error parsing config for step '{step}':\n{e}")
@@ -73,6 +75,8 @@ def run_step(config: PipelineConfig) -> None:
         predict(config.predict_config)
     elif config.step == "evaluate":
         evaluate(config.evaluate_config)
+    elif config.step == "visualize":
+        visualize(config.visualize_config)
     else:
         raise ValueError(f"Unknown step '{config.step}'")
 

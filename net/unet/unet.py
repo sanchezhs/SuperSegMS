@@ -31,19 +31,23 @@ class MRIDataset(Dataset):
         self.img_dir = Path(img_dir)
         self.mask_dir = Path(mask_dir) if mask_dir else None
         self.cache_size = cache_size
-        self.cache = {} # LRU cache
+        self.cache = {}  # simple cache
         self.check_directories()
-        self.images = sorted(self.img_dir.iterdir())
-        self.masks = sorted(self.mask_dir.iterdir()) if mask_dir else None
 
-    def _get_image_shapes(self):
-        """Pre-compute image shapes to avoid repeated cv2.imread calls"""
-        shapes = {}
-        for img_path in self.images:
-            # Read just the header to get shape info
-            img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
-            shapes[img_path.name] = img.shape
-        return shapes
+        # Only load valid image files
+        image_files = sorted([p for p in self.img_dir.iterdir() if p.suffix.lower() in (".png", ".jpg", ".jpeg")])
+
+        if self.mask_dir is None:
+            self.images = image_files
+            self.masks = None
+        else:
+            # Align images and masks by filename (stem)
+            masks_map = {p.name: p for p in self.mask_dir.iterdir() if p.suffix.lower() in (".png", ".jpg", ".jpeg")}
+            pairs = [(img, masks_map.get(img.name, None)) for img in image_files]
+            # keep only those with a mask
+            pairs = [(img, m) for img, m in pairs if m is not None]
+            self.images = [img for img, _ in pairs]
+            self.masks  = [m for _, m in pairs]
 
     def check_directories(self):
         if not self.img_dir.exists():
@@ -56,30 +60,26 @@ class MRIDataset(Dataset):
 
     def __getitem__(self, idx: int):
         img_path = self.images[idx]
-        
-        # Check cache first
         cache_key = f"img_{idx}"
+
         if cache_key in self.cache:
             img = self.cache[cache_key]
         else:
             img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255.0
-            # Add to cache if under limit
             if len(self.cache) < self.cache_size:
                 self.cache[cache_key] = img
-        
-        img = torch.tensor(img, dtype=torch.float32).unsqueeze(0)  # Specify dtype
+
+        img = torch.tensor(img, dtype=torch.float32).unsqueeze(0)
 
         if self.mask_dir:
             mask_path = self.masks[idx]
             mask_cache_key = f"mask_{idx}"
-            
             if mask_cache_key in self.cache:
                 mask = self.cache[mask_cache_key]
             else:
                 mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255.0
                 if len(self.cache) < self.cache_size:
                     self.cache[mask_cache_key] = mask
-            
             mask = torch.tensor(mask, dtype=torch.float32).unsqueeze(0)
             return img, mask, img_path.name
 
@@ -132,7 +132,7 @@ class UNet:
         self.config = config
         self.conf = 0.5
         
-        self.metrics_calculator_cls = metrics_calculator_cls
+        self._metrics_calculator_cls = metrics_calculator_cls or MetricsCalculator
         self._metrics_calculator = None
 
         # Initialize based on config type
@@ -153,10 +153,7 @@ class UNet:
 
     @property
     def metrics_calculator(self) -> "MetricsCalculator":
-        """Lazily instantiate and return the metrics calculator."""
         if self._metrics_calculator is None:
-            if self._metrics_calculator_cls is None:
-                self._metrics_calculator_cls = MetricsCalculator
             self._metrics_calculator = self._metrics_calculator_cls()
         return self._metrics_calculator
 
@@ -168,6 +165,62 @@ class UNet:
             classes=1, 
             activation=None
         ).to(self.device)
+
+    def _init_prediction(self, config: PredictConfig) -> None:
+        """Initialize for prediction mode.
+
+        Defaults to predicting on the 'test' split. You can optionally add
+        `split` to PredictConfig (e.g., 'test', 'train', or 'val') to override.
+        For CV use-cases, we usually skip the standalone predict step and
+        use `from_kfold(...).predict()` on each fold's val subset.
+        """
+        self.src_path = config.src_path
+        self.dst_path = config.dst_path
+        self.model_path = config.model_path
+
+        # Optional override (backward compatible if your schema doesn't have it)
+        split = getattr(config, "split", "test")
+
+        # Resolve images_dir based on split and what's materialized on disk
+        images_dir = self.src_path / "images" / split
+        if not images_dir.exists():
+            # Try final_retrain val as a sensible fallback for ad-hoc checks
+            fr_val = self.src_path / "final_retrain" / "images" / "val"
+            if split == "test" and fr_val.exists():
+                logger.warning(
+                    "'images/test' not found. Falling back to final_retrain/images/val."
+                )
+                images_dir = fr_val
+            else:
+                # Last resort: train
+                train_dir = self.src_path / "images" / "train"
+                if train_dir.exists():
+                    logger.warning(
+                        f"Images dir for split '{split}' not found at {images_dir}. "
+                        f"Falling back to 'images/train'."
+                    )
+                    images_dir = train_dir
+                else:
+                    raise FileNotFoundError(
+                        f"Could not find images dir for split '{split}' at {images_dir}, "
+                        f"and no fallback directory exists."
+                    )
+
+        # Initialize model and load weights
+        self.model = self._create_model()
+        self._load_model()
+
+        # Build the loader for prediction (no masks needed)
+        self.test_loader = self._get_dataloader(
+            MRIDataset(images_dir),  # masks=None
+            batch_size=1,
+            shuffle=False,
+        )
+
+        # Ensure destination exists
+        self.dst_path.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Prediction initialized. Split='{split}', images_dir={images_dir}, dst={self.dst_path}")
+
 
     def _init_training(self, config: TrainConfig) -> None:
         """Initialize for training mode."""
@@ -197,67 +250,60 @@ class UNet:
         self._setup_training_components()
 
     def _init_evaluation(self, config: EvaluateConfig) -> None:
-        """Initialize for evaluation mode."""
-        self.src_path = config.src_path
+        """Initialize for evaluation mode on the split inferred from gt_path (e.g., 'test')."""
+        self.src_path  = config.src_path
         self.model_path = config.model_path
-        self.pred_path = config.pred_path
-        self.gt_path = config.gt_path
-        
-        # Derived attributes
+        self.pred_path  = config.pred_path
+        self.gt_path    = config.gt_path
+
         self.plots_dir = self.pred_path.parent / "plots"
         self.metrics: SegmentationMetrics = None
-        
-        # Validation
-        if not self.pred_path.exists():
-            raise FileNotFoundError(
-                f"Prediction directory {self.pred_path} does not exist. "
-                "Did you run the prediction step?"
-            )
-        
-        # Initialize model and load weights
-        self.model = self._create_model()
-        self._load_model()
-        
-        # Setup validation data loader
-        self.val_loader = self._get_dataloader(
-            MRIDataset(
-                self.src_path / "images" / "val",
-                self.src_path / "labels" / "val",
-            ),
-            batch_size=1
-        )
 
-    def _init_prediction(self, config: PredictConfig) -> None:
-        """Initialize for prediction mode."""
-        self.src_path = config.src_path
-        self.dst_path = config.dst_path
-        self.model_path = config.model_path
-        
-        # Initialize model and load weights
+        split = Path(self.gt_path).name  # expects .../labels/<split>
+        if (self.src_path / "images" / split).exists():
+            images_dir = self.src_path / "images" / split
+            labels_dir = self.src_path / "labels" / split
+        else:
+            raise FileNotFoundError(
+                f"Could not infer images dir for split '{split}'. "
+                f"Expected at {self.src_path / 'images' / split}"
+            )
+
         self.model = self._create_model()
         self._load_model()
-        
-        # Setup test data loader
-        self.test_loader = self._get_dataloader(
-            MRIDataset(self.src_path / "images" / "test"),
+
+        self.val_loader = self._get_dataloader(
+            MRIDataset(images_dir, labels_dir),
             batch_size=1,
+            shuffle=False
         )
 
     def _setup_training_dataloaders(self) -> None:
-        """Setup training and validation data loaders."""
+        """
+        Prefer 'final_retrain/{images,labels}/{train,val}' if present.
+        Fallback to 'images/{train,val}' at dataset root.
+        """
+        fr_root = self.src_path / "final_retrain"
+        if (fr_root / "images" / "train").exists() and (fr_root / "images" / "val").exists():
+            train_img = fr_root / "images" / "train"
+            train_lbl = fr_root / "labels" / "train"
+            val_img   = fr_root / "images" / "val"
+            val_lbl   = fr_root / "labels" / "val"
+        else:
+            train_img = self.src_path / "images" / "train"
+            train_lbl = self.src_path / "labels" / "train"
+            val_img   = self.src_path / "images" / "val"
+            val_lbl   = self.src_path / "labels" / "val"
+
         self.train_loader = self._get_dataloader(
-            MRIDataset(
-                self.src_path / "images" / "train",
-                self.src_path / "labels" / "train",
-            ),
+            MRIDataset(train_img, train_lbl),
             batch_size=self.batch_size,
+            shuffle=True,
         )
         self.val_loader = self._get_dataloader(
-            MRIDataset(
-                self.src_path / "images" / "val",
-                self.src_path / "labels" / "val",
-            ),
+            MRIDataset(val_img, val_lbl),
             batch_size=self.batch_size,
+            shuffle=False,
         )
 
     def _setup_training_components(self) -> None:
@@ -282,59 +328,88 @@ class UNet:
         return self._run_kfold() if self.use_kfold else self._run_single_training()
 
     def _run_kfold(self) -> dict:
-        """Run k-fold cross-validation for training the U-Net model.
-        This method initializes the dataset, performs k-fold splitting based on patient IDs,
-        trains the model on each fold, evaluates it, and collects metrics.
-        Returns:
-            dict: A dictionary containing mean and standard deviation of metrics across all folds.
         """
-        datasets = [
-            MRIDataset(
-                self.src_path / "images" / s,
-                self.src_path / "labels" / s,
-            ) for s in ["train", "val", "test"]
-        ]
-        dataset = ConcatDataset(datasets)
+        If 'cv_folds/fold_*' exists under src_path, use the materialized folds.
+        Otherwise, fallback to GroupKFold over images/train grouped by patient.
+        """
+        cv_root = self.src_path / "cv_folds"
+        if cv_root.exists():
+            logger.info(f"[U-Net] Using materialized folds at: {cv_root}")
+            fold_metrics, fold_train_hist, fold_val_hist = [], [], []
+            # Discover folds in numeric order
+            fold_dirs = sorted([p for p in cv_root.iterdir() if p.is_dir() and p.name.startswith("fold_")],
+                            key=lambda p: int(p.name.split("_")[-1]))
+            if not fold_dirs:
+                raise RuntimeError(f"No folds found in {cv_root}")
 
-        # Extract group labels (e.g., patient IDs)
-        group_labels = []
-        for ds in datasets:
-            for img in ds.images:
-                pid = img.name.split("_")[0]
-                group_labels.append(pid)
+            for i, fold_dir in enumerate(fold_dirs, start=1):
+                logger.info(f"[U-Net] Fold {i}: {fold_dir.name}")
+                tr_img = fold_dir / "images" / "train"
+                tr_lbl = fold_dir / "labels" / "train"
+                va_img = fold_dir / "images" / "val"
+                va_lbl = fold_dir / "labels" / "val"
 
+                train_loader = self._get_dataloader(
+                    MRIDataset(tr_img, tr_lbl),
+                    batch_size=self.batch_size,
+                    shuffle=True,
+                )
+                val_loader = self._get_dataloader(
+                    MRIDataset(va_img, va_lbl),
+                    batch_size=self.batch_size,
+                    shuffle=False,
+                )
+
+                # Create a fold-specific instance writing under dst_path/fold_i
+                fold_model = UNet.from_kfold(self.config, i, train_loader, val_loader)
+                fold_model.scaler = self.scaler
+                fold_model.train()
+
+                fold_train_hist.append(fold_model.train_losses)
+                fold_val_hist.append(fold_model.val_losses)
+
+                fold_model.predict()      # runs on its val set
+                metrics = fold_model.evaluate()
+                fold_metrics.append(metrics)
+
+                send_whatsapp_message(
+                    f"U-Net Fold {i}/{len(fold_dirs)} done. Metrics: {metrics}"
+                )
+
+            self._plot_kfolds_curve(fold_train_hist, fold_val_hist, self.model_name)
+            summary = self.metrics_calculator.kfold_summary(fold_metrics)
+            self.metrics_calculator.write_kfold_summary(summary, self.dst_path / "kfold_summary.json")
+            send_whatsapp_message(f"U-Net Cross-validation completed. Summary: {summary}")
+            return summary
+
+        # ---------- Fallback (previous patient-group KFold over images/train) ----------
+        logger.info("[U-Net] Materialized folds not found. Falling back to GroupKFold over images/train.")
+        train_ds = MRIDataset(self.src_path / "images" / "train", self.src_path / "labels" / "train")
+        group_labels = [p.name.split("_")[0] for p in train_ds.images]
+        if len(group_labels) != len(train_ds):
+            raise RuntimeError("Group labels and dataset size mismatch.")
         gkf = GroupKFold(n_splits=self.kfold_n_splits)
         fold_metrics, fold_train_hist, fold_val_hist = [], [], []
 
-        for fold, (train_idx, val_idx) in enumerate(gkf.split(np.arange(len(dataset)), groups=group_labels)):
-            logger.info(f"Starting fold {fold + 1}/{self.kfold_n_splits}")
-            train_loader = self._get_dataloader(
-                Subset(dataset, train_idx),
-                batch_size=self.batch_size,
-            )
-            val_loader = self._get_dataloader(
-                Subset(dataset, val_idx),
-                batch_size=self.batch_size,
-            )
-
+        for fold, (tr_idx, val_idx) in enumerate(gkf.split(np.arange(len(train_ds)), groups=group_labels), start=1):
+            logger.info(f"[U-Net] Starting fold {fold}/{self.kfold_n_splits}")
+            tr_subset  = Subset(train_ds, tr_idx.tolist())
+            val_subset = Subset(train_ds, val_idx.tolist())
+            train_loader = self._get_dataloader(tr_subset, batch_size=self.batch_size, shuffle=True)
+            val_loader   = self._get_dataloader(val_subset, batch_size=self.batch_size, shuffle=False)
             fold_model = UNet.from_kfold(self.config, fold, train_loader, val_loader)
             fold_model.scaler = self.scaler
             fold_model.train()
-
             fold_train_hist.append(fold_model.train_losses)
             fold_val_hist.append(fold_model.val_losses)
-
             fold_model.predict()
             metrics = fold_model.evaluate()
             fold_metrics.append(metrics)
-
-            send_whatsapp_message(f"U-Net Fold {fold+1} done. Metrics: {metrics}")
+            send_whatsapp_message(f"U-Net Fold {fold}/{self.kfold_n_splits} done. Metrics: {metrics}")
 
         self._plot_kfolds_curve(fold_train_hist, fold_val_hist, self.model_name)
         summary = self.metrics_calculator.kfold_summary(fold_metrics)
-        self.metrics_calculator.write_kfold_summary(
-            summary, self.dst_path / "kfold_summary.json"
-        )
+        self.metrics_calculator.write_kfold_summary(summary, self.dst_path / "kfold_summary.json")
         send_whatsapp_message(f"U-Net Cross-validation completed. Summary: {summary}")
         return summary
 
@@ -390,21 +465,11 @@ class UNet:
 
         self._plot_loss_curve()
 
-
     @classmethod
     def from_kfold(cls, config: TrainConfig, fold: int, train_loader, val_loader) -> "UNet":
-        """
-        Create a U-Net instance for k-fold training.
-        Args:
-            config (TrainConfig): Configuration for training.
-            fold (int): Current fold number.
-            train_loader (DataLoader): DataLoader for training data.
-            val_loader (DataLoader): DataLoader for validation data.
-        Returns:
-            UNet: An instance of the U-Net model configured for k-fold training.
-        """
         instance = cls.__new__(cls)
-        instance.mode = "train"
+        instance._metrics_calculator_cls = MetricsCalculator
+        instance._metrics_calculator = None
         instance.conf = 0.5
         instance.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         instance.encoder_name = "resnet34"
@@ -412,7 +477,7 @@ class UNet:
         instance.batch_size = config.batch_size
         instance.epochs = config.epochs
         instance.learning_rate = config.learning_rate
-        instance.use_kfold = False
+        instance.use_kfold = False  # important: run single-training loop
         instance.metrics = None
 
         base = config.dst_path.name
@@ -422,24 +487,26 @@ class UNet:
         instance.plots_dir = instance.dst_path / "plots"
         instance.model_name = f"{base}_fold_{fold}"
         instance.model_path = instance.dst_path / "models" / f"{instance.model_name}.pth"
+
         (instance.dst_path / "models").mkdir(parents=True, exist_ok=True)
         instance.pred_path.mkdir(parents=True, exist_ok=True)
         instance.plots_dir.mkdir(parents=True, exist_ok=True)
 
         instance.train_loader = train_loader
-        instance.val_loader = val_loader
-        instance.test_loader = val_loader
+        instance.val_loader   = val_loader
+        instance.test_loader  = val_loader  # predict/eval on fold's validation subset
+
         instance.model = smp.Unet(
             encoder_name=instance.encoder_name,
             in_channels=1,
             classes=1,
             activation=None
         ).to(instance.device)
+
         instance.criterion = BCEDiceLoss()
         instance.optimizer = optim.Adam(instance.model.parameters(), lr=instance.learning_rate)
         instance.scheduler = optim.lr_scheduler.ReduceLROnPlateau(instance.optimizer, mode="min", factor=0.1, patience=5)
-        instance.train_losses = []
-        instance.val_losses = []
+        instance.train_losses, instance.val_losses = [], []
         return instance
 
     def validate(self) -> float:
@@ -460,81 +527,79 @@ class UNet:
 
     def evaluate(self) -> SegmentationMetrics:
         """
-        Evaluate the model on the validation dataset by computing metrics per image.
-        Computes IoU, Dice, precision, recall, F1 score, specificity, and inference time for each image,
-        then returns the average of each metric across all images. Results are saved in JSON format.
+        Evaluate on self.val_loader (CV case) or the configured evaluation loader.
         """
         logger.info(f"Evaluating model {self.model_path}")
-
-        # Load model weights and set to eval mode
         self.model.load_state_dict(torch.load(str(self.model_path), map_location=self.device))
-        self.model.to(self.device)
-        self.model.eval()
-        
-        all_metrics = {
-            "iou": [],
-            "dice_score": [],
-            "precision": [],
-            "recall": [],
-            "specificity": [],
-            "inference_time": []
-        }
+        self.model.to(self.device).eval()
+
+        all_per_image: list[dict] = []
+        all_times: list[float] = []
+        all_metrics = {k: [] for k in ["iou", "dice_score", "precision", "recall", "specificity", "inference_time"]}
+        self.pred_path.mkdir(parents=True, exist_ok=True)
 
         with torch.no_grad():
             for images, masks, *_ in tqdm(self.val_loader, desc="Evaluating"):
-                # Move batch to device
                 images, masks = images.to(self.device), masks.to(self.device)
-                
-                # Run inference and measure time
+
                 pred_masks, batch_time = self._infer_and_time(images)
-                
-                # Compute per-image time and batch metrics
+                # masks -> numpy (B,1,H,W) or (B,H,W); ensure (B,H,W)
+                gt = masks.cpu().numpy()
+                if gt.ndim == 4 and gt.shape[1] == 1:
+                    gt = gt[:, 0, :, :]
+
+                areas = gt.reshape(gt.shape[0], -1).sum(axis=1)
+                for i, a in enumerate(areas.tolist()):
+                    all_per_image[-(len(gt)) + i]["lesion_area_px"] = float(a)
+
+
+                # time per image
                 time_per_image = batch_time / images.shape[0] if images.shape[0] > 0 else 0.0
-                batch_metrics = self.metrics_calculator.evaluate_batch(
-                    pred_masks, masks.cpu().numpy(), 
-                    times=[time_per_image] * images.shape[0], 
-                    threshold=self.conf
+                times = [time_per_image] * images.shape[0]
+
+                avg_batch, per_img = self.metrics_calculator.evaluate_batch(
+                    preds=pred_masks[:, 0, :, :],  # (B,H,W)
+                    gts=gt,                        # (B,H,W)
+                    times=[time_per_image] * images.shape[0],
+                    threshold=0.5
                 )
-                
-                # Accumulate all metrics
+                all_per_image.extend(per_img)
+                all_times.extend(times)
+
                 for key in all_metrics:
-                    all_metrics[key].append(batch_metrics[key])
+                    all_metrics[key].append(avg_batch[key])
 
-        # Compute averages and create metrics object
-        self.metrics = SegmentationMetrics(
-            **{key: float(np.mean(values)) for key, values in all_metrics.items()}
-        )
+        self.metrics = SegmentationMetrics(**{k: float(np.mean(v)) for k, v in all_metrics.items()})
 
-        # Save results
-        self.metrics.write_to_file(self.pred_path / "metrics.json")
+        out_dir = self.pred_path if getattr(self, "pred_path", None) else self.dst_path
+        out_dir.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"Metrics saved in {self.pred_path}/metrics.json")
+        self.metrics.write_to_file(out_dir / "metrics.json")
+        (self.pred_path / "per_image_metrics.json").write_text(json.dumps(all_per_image, indent=2))
+
+        logger.info(f"Metrics saved at {out_dir / 'metrics.json'}")
+        logger.info(f"Per-image metrics saved at {self.pred_path / 'per_image_metrics.json'}")
         logger.info(f"Average metrics:\n{self.metrics}")
-
         return self.metrics
 
     def predict(self) -> None:
         """
-        Predict segmentation masks for images in the test dataset and save the results.
-        This method loads the model weights, performs inference on the test dataset,
-        and saves the predicted masks as images in the specified destination path.
+        Predict masks for the configured dataset loader.
+        For CV, saves into self.pred_path. For final predict mode, into self.dst_path.
         """
-        logger.info(f"Predicting images in {self.src_path} and saving to {self.dst_path}")
-        self.model.load_state_dict(
-            torch.load(self.model_path, map_location=self.device)
-        )
+        logger.info("Predicting...")
+        self.model.load_state_dict(torch.load(self.model_path, map_location=self.device))
         self.model.eval()
 
-        # Kfolds. TODO: IMPROVE
-        if self.pred_path:
-            self.dst_path = self.pred_path
+        # In CV (from_kfold), write into predictions dir
+        out_dir = self.pred_path if getattr(self, "pred_path", None) else self.dst_path
+        out_dir.mkdir(parents=True, exist_ok=True)
 
         for i, batch in enumerate(tqdm(self.test_loader, desc="Predicting")):
             if len(batch) == 3:
                 images, _, image_names = batch
             else:
                 images, image_names = batch
-
             images = images.to(self.device)
 
             with torch.no_grad():
@@ -543,10 +608,9 @@ class UNet:
             for j in range(images.shape[0]):
                 pred_mask = preds[j, 0, :, :]
                 pred_img = ((pred_mask > 0.5) * 255).astype(np.uint8)
-                output_path = self.dst_path / image_names[j]
-                cv2.imwrite(output_path, pred_img)
+                cv2.imwrite(str(out_dir / image_names[j]), pred_img)
 
-        logger.info(f"Predictions saved in test directory: {self.dst_path}")
+        logger.info(f"Predictions saved to: {out_dir}")
 
     # ------------------------- Private Methods -------------------------
     def _load_model(self) -> None:
@@ -557,27 +621,18 @@ class UNet:
         self.model.eval()
 
     def _get_dataloader(self, dataset: Dataset, batch_size: int, shuffle=False, num_workers=None) -> DataLoader:
-        """Create optimized DataLoader
-        Args:
-            dataset (Dataset): The dataset to load.
-            batch_size (int): Size of each batch.
-            shuffle (bool): Whether to shuffle the dataset.
-            num_workers (int, optional): Number of subprocesses to use for data loading.
-        """
         if num_workers is None:
-            num_workers = min(4, torch.get_num_threads())
-        
+            num_workers = min(4, max(0, torch.get_num_threads()))
         return DataLoader(
             dataset,
             batch_size=batch_size,
             shuffle=shuffle,
             num_workers=num_workers,
-            pin_memory=True,  # Faster GPU transfer
-            persistent_workers=True,  # Keep workers alive between epochs
-            prefetch_factor=2,  # Prefetch batches
-            drop_last=True if shuffle else False,  # Consistent batch sizes
+            pin_memory=True,
+            persistent_workers=(num_workers > 0),
+            prefetch_factor=2 if num_workers > 0 else None,
+            drop_last=False,  # keep all samples for stable metrics
         )
-
 
     def _plot_loss_curve(self) -> None:
         """

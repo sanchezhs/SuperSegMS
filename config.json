@@ -5,20 +5,27 @@
             "preprocess": {
                 "net": "unet",
                 "src_path": "datasets/MSLesSeg-Dataset",
-                "dst_path": "datasets/unet_all",
+                "dst_path": "datasets/unet_all_test",
                 "resize": [320, 320],
-                "split": 0.7,
+                "split": 0.8,
                 "seed": 42,
                 "strategy": "all_slices",
-                "super_scale": 1
+                "super_scale": 1,
+                "kfold": {
+                    "enable": true,
+                    "n_splits": 5,
+                    "seed": 42,
+                    "mini_val_frac": 0.10,
+                    "link_mode": "hardlink"
+                }
             },
             "train": {
                 "net": "unet",
-                "src_path": "datasets/unet_all",
-                "dst_path": "results/unet/unet_all_kfolds",
+                "src_path": "datasets/unet_all_test",
+                "dst_path": "results/unet/unet_all_kfolds_test",
                 "batch_size": 16,
                 "use_kfold": true,
-                "epochs": 25,
+                "epochs": 1,
                 "learning_rate": 0.01
             },
             "predict": {
@@ -33,6 +40,14 @@
                 "src_path": "datasets/unet_all",
                 "pred_path": "results/unet/unet_all_kfolds/predictions",
                 "gt_path": "datasets/unet_all/labels/test"
+            },
+             "visualize": {
+                "net": "unet",
+                "pred_path": "results/unet/unet_all/predictions",
+                "plots_dir": "results/unet/unet_all/final/plots",
+                "plots_title": "U-Net Final on Test",
+                "model_path": "results/unet/unet_all/models/unet_all.pth",
+                "plot_prefix": "unet_all_kfolds_final"
             }
         },
         {
@@ -40,20 +55,27 @@
             "preprocess": {
                 "net": "yolo",
                 "src_path": "datasets/MSLesSeg-Dataset",
-                "dst_path": "datasets/yolo_all",
+                "dst_path": "datasets/yolo_all_test",
                 "resize": [320, 320],
-                "split": 0.7,
+                "split": 0.8,
                 "seed": 42,
                 "strategy": "all_slices",
-                "super_scale": 1
+                "super_scale": 1,
+                "kfold": {
+                    "enable": true,
+                    "n_splits": 5,
+                    "seed": 42,
+                    "mini_val_frac": 0.10,
+                    "link_mode": "hardlink"
+                }
             },
             "train": {
                 "net": "yolo",
-                "src_path": "datasets/yolo_all",
-                "dst_path": "results/yolo/yolo_all_kfolds",
+                "src_path": "datasets/yolo_all_test",
+                "dst_path": "results/yolo/yolo_all_kfolds_test",
                 "use_kfold": true,
                 "batch_size": 16,
-                "epochs": 25,
+                "epochs": 1,
                 "learning_rate": 0.01
             },
             "predict": {
@@ -77,7 +99,7 @@
                 "src_path": "datasets/MSLesSeg-Dataset",
                 "dst_path": "datasets/unet_lesion",
                 "resize": [320, 320],
-                "split": 0.7,
+                "split": 0.8,
                 "seed": 42,
                 "strategy": "lesion_slices",
                 "super_scale": 1
@@ -112,7 +134,7 @@
                 "src_path": "datasets/MSLesSeg-Dataset",
                 "dst_path": "datasets/unet_lesion_x2",
                 "resize": [320, 320],
-                "split": 0.7,
+                "split": 0.8,
                 "seed": 42,
                 "strategy": "lesion_slices",
                 "super_scale": 2
@@ -137,7 +159,7 @@
                 "model_path": "results/unet/unet_lesion_x2_kfolds/models/unet_lesion_x2_kfolds.pth",
                 "src_path": "datasets/unet_lesion_x2",
                 "pred_path": "results/unet/unet_lesion_x2_kfolds/predictions",
-                "gt_path": "datasets/unet_lesion_x2_kfolds/labels/test"
+                "gt_path": "datasets/unet_lesion_x2/labels/test"
             }
         },
         {
@@ -147,7 +169,7 @@
                 "src_path": "datasets/MSLesSeg-Dataset",
                 "dst_path": "datasets/yolo_lesion",
                 "resize": [320, 320],
-                "split": 0.7,
+                "split": 0.8,
                 "seed": 42,
                 "strategy": "lesion_slices",
                 "super_scale": 1
@@ -182,7 +204,7 @@
                 "src_path": "datasets/MSLesSeg-Dataset",
                 "dst_path": "datasets/yolo_lesion_x2",
                 "resize": [320, 320],
-                "split": 0.7,
+                "split": 0.8,
                 "seed": 42,
                 "super_scale": 2,
                 "strategy": "lesion_slices"
@@ -217,7 +239,7 @@
                 "src_path": "datasets/MSLesSeg-Dataset",
                 "dst_path": "datasets/unet_block_x0",
                 "resize": [320, 320],
-                "split": 0.7,
+                "split": 0.8,
                 "seed": 42,
                 "block_size": 5,
                 "strategy": "lesion_block",
@@ -254,7 +276,7 @@
                 "src_path": "datasets/MSLesSeg-Dataset",
                 "dst_path": "datasets/unet_block_x2",
                 "resize": [320, 320],
-                "split": 0.7,
+                "split": 0.8,
                 "seed": 42,
                 "block_size": 5,
                 "strategy": "lesion_block",
@@ -291,7 +313,7 @@
                 "src_path": "datasets/MSLesSeg-Dataset",
                 "dst_path": "datasets/yolo_block_x0",
                 "resize": [320, 320],
-                "split": 0.7,
+                "split": 0.8,
                 "seed": 42,
                 "block_size": 5,
                 "strategy": "lesion_block",
@@ -328,7 +350,7 @@
                 "src_path": "datasets/MSLesSeg-Dataset",
                 "dst_path": "datasets/yolo_block_x2",
                 "resize": [320, 320],
-                "split": 0.7,
+                "split": 0.8,
                 "seed": 42,
                 "block_size": 5,
                 "strategy": "lesion_block",

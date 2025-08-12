@@ -34,21 +34,20 @@ class SuperResolutionTransformer(Transformer):
         """
         self.super_scale = super_scale
         self.orig_size = orig_size  # Original size for resizing before super-resolution
-        if super_scale != SuperScale.NONE:
-            self.model = FSRCNN(super_scale, FSRCNN_PATH[super_scale])
-        else:
+        if super_scale == SuperScale.NONE:
             self.model = None
+        else:
+            factor = int(super_scale.value)
+            self.model = FSRCNN(scale_factor=factor, weights_path=FSRCNN_PATH[factor])
 
     def transform(self, img: np.ndarray, is_flair: bool) -> np.ndarray:
-        if np.max(img) == 0:
-            # If the image is empty, do not apply super-resolution
-            # because it will produce artifacts.
-            new_resolution = (self.orig_size[0] * self.super_scale.value, self.orig_size[1] * self.super_scale.value)
-            return cv2.resize(img, new_resolution, interpolation=cv2.INTER_NEAREST)
         if not is_flair or self.super_scale == SuperScale.NONE:
             return img
+        if np.max(img) == 0:
+            w, h = self.orig_size
+            return cv2.resize(img, (int(w * self.super_scale.value), int(h * self.super_scale.value)),
+                              interpolation=cv2.INTER_NEAREST)
         return self.model.apply(img)
-
 
 class FlairNormalizeTransformer(Transformer):
     def transform(self, img: np.ndarray, is_flair: bool) -> np.ndarray:

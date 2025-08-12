@@ -19,8 +19,8 @@ class MetricsCalculator:
         """
         Convert probabilities or grayscale masks into binary masks.
         """
-        return (mask > threshold).astype(np.uint8)
-
+        return (mask.astype(np.float32) > float(threshold))
+    
     @staticmethod
     def confusion_matrix(
         pred: np.ndarray,
@@ -29,19 +29,21 @@ class MetricsCalculator:
     ) -> Tuple[int, int, int, int]:
         """
         Compute TP, FP, FN, TN for a single pair of masks.
+        Works in boolean space to avoid uint8 bitwise pitfalls.
         """
-        p = MetricsCalculator.binarize(pred, threshold)
-        g = MetricsCalculator.binarize(gt, threshold)
-        tp = int((p & g).sum())
-        fp = int((p & ~g).sum())
-        fn = int((~p & g).sum())
-        tn = int((~p & ~g).sum())
+        p = MetricsCalculator.binarize(pred, threshold)  # bool
+        g = MetricsCalculator.binarize(gt, threshold)    # bool
+
+        tp = int(np.logical_and(p, g).sum())
+        fp = int(np.logical_and(p, np.logical_not(g)).sum())
+        fn = int(np.logical_and(np.logical_not(p), g).sum())
+        tn = int(np.logical_and(np.logical_not(p), np.logical_not(g)).sum())
         return tp, fp, fn, tn
 
     @staticmethod
     def from_confusion(tp: int, fp: int, fn: int, tn: int) -> Dict[str, float]:
         """
-        Compute all metrics from counts.
+        Compute IoU, Dice, Precision, Recall, Specificity from counts.
         """
         iou = tp / (tp + fp + fn) if (tp + fp + fn) > 0 else 0.0
         dice = (2 * tp) / (2 * tp + fp + fn) if (2 * tp + fp + fn) > 0 else 0.0
@@ -49,46 +51,39 @@ class MetricsCalculator:
         recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
         specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
         return {
-            "iou": iou,
-            "dice_score": dice,
-            "precision": precision,
-            "recall": recall,
-            "specificity": specificity,
+            "iou": float(iou),
+            "dice_score": float(dice),
+            "precision": float(precision),
+            "recall": float(recall),
+            "specificity": float(specificity),
         }
-
+    
     @staticmethod
     def evaluate_batch(
-        preds: np.ndarray,
-        gts: np.ndarray,
-        times: List[float] = None,
+        preds: np.ndarray,      # shape (N,H,W) in [0,1] or logits if threshold applies
+        gts: np.ndarray,        # shape (N,H,W) in {0,1} or [0,1]
+        times: List[float] | None = None,
         threshold: float = 0.5
     ) -> Tuple[Dict[str, float], List[Dict[str, float]]]:
         """
-        Evaluate a batch of N masks:
-            - preds: shape (N, H, W) predicted continuous masks
-            - gts:   shape (N, H, W) ground-truth continuous or binary masks
-            - times: optional list of inference times per image
-
         Returns:
-            - avg_metrics: dict of average over N images (including inference_time if times given)
+            avg_metrics: dict of averages over N
+            per_image:   list of dicts per image with all metrics (+ inference_time if times provided)
         """
-        n = preds.shape[0]
-        per_image = []
+        n = int(preds.shape[0])
+        per_image: List[Dict[str, float]] = []
         for i in range(n):
-            tp, fp, fn, tn = MetricsCalculator.confusion_matrix(
-                preds[i], gts[i], threshold
-            )
+            tp, fp, fn, tn = MetricsCalculator.confusion_matrix(preds[i], gts[i], threshold)
             m = MetricsCalculator.from_confusion(tp, fp, fn, tn)
             if times is not None:
                 m["inference_time"] = float(times[i])
             per_image.append(m)
 
-        # Compute averages
         avg = {}
-        for key in per_image[0]:
-            vals = [m[key] for m in per_image]
-            avg[key] = float(np.mean(vals))
-        return avg
+        for key in per_image[0].keys():
+            vals = [m[key] for m in per_image if key in m]
+            avg[key] = float(np.mean(vals)) if len(vals) > 0 else 0.0
+        return avg, per_image
 
     @staticmethod
     def kfold_summary(metrics_list: List[SegmentationMetrics]) -> Dict[str, Dict[str, float]]:
