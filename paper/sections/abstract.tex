@@ -1,0 +1,25 @@
+\documentclass[../main.tex]{subfiles}
+
+\begin{document}
+%% begin abstract format
+\makeatletter
+\renewenvironment{abstract}{%
+    \if@twocolumn
+      \section*{Abstract \\}%
+    \else %% <- here I've removed \small
+    \begin{flushright}
+        {\filleft\Huge\bfseries\fontsize{48pt}{12}\selectfont Abstract\vspace{\z@}}%  %% <- here I've added the format
+        \end{flushright}
+      \quotation
+    \fi}
+    {\if@twocolumn\else\endquotation\fi}
+\makeatother
+%% end abstract format
+\begin{abstract}
+
+Este Trabajo de Fin de Máster presenta el desarrollo de un sistema automático para la segmentación de lesiones de esclerosis múltiple (EM) en imágenes de resonancia magnética cerebral, utilizando técnicas basadas en redes neuronales profundas y comparando dos arquitecturas ampliamente utilizadas: U-Net, orientada a segmentación semántica, y YOLO, originalmente diseñada para detección, pero adaptada en este trabajo para tareas de segmentación. El estudio explora distintas estrategias de selección de cortes 2D a partir de volúmenes 3D, así como la aplicación de técnicas de super-resolución (FSRCNN) sobre las imágenes antes del entrenamiento. Los resultados cuantitativos muestran que U-Net, especialmente cuando se combina estrategias de selección de cortes y superresolución, ofrece un mejor rendimiento general. Por su parte, YOLO destaca por su rápida velocidad de inferencia, aunque presenta un desempeño  inferior. El análisis cualitativo refuerza estas conclusiones, evidenciando diferencias importantes en la forma en que cada red segmenta las lesiones. Este trabajo pone de manifiesto la importancia del preprocesamiento, la selección de datos y selección de red neuronal en la segmentación médica, y plantea futuras líneas de mejora para lograr modelos más precisos y eficientes.
+
+\bfseries{\large{Keywords:}} Segmentación médica, Esclerosis múltiple, Resonancia magnética, U-Net, YOLO
+
+\end{abstract}
+\end{document}

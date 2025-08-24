@@ -1,0 +1,47 @@
+\documentclass[../main.tex]{subfiles}
+\begin{document}
+
+
+\section{Introducción}
+La esclerosis múltiple (EM) es una enfermedad neurológica crónica que afecta a millones de personas en todo el mundo. Esta enfermedad causa inflamación en varias áreas del cerebro, lo que provoca daño a la mielina, el tejido graso que rodea y aísla las fibras nerviosas, fundamental para la función neurológica adecuada \cite{rondinella2024icpr2024competitionmultiple}. La resonancia magnética (RM) es una herramienta fundamental para el diagnóstico de la EM, así como para monitorizar su progresión y evaluar la respuesta a los tratamientos.
+
+Dentro del manejo clínico de la EM, la segmentación precisa de las lesiones es esencial para la cuantificación volumétrica de la carga de lesiones. Esta cuantificación es importante para comprender y caracterizar la progresión de la enfermedad. Sin embargo, la segmentación manual de las lesiones de EM en las exploraciones de RM es una tarea muy ardua, que requiere mucho tiempo y una experiencia significativa por parte de los expertos Además, esta tarea manual es propensa a la variabilidad, tanto entre diferentes observadores (inter-observador) como para el mismo experto en momentos distintos (intra-observador).
+La dificultad y la subjetividad asociadas a la segmentación manual ponen de manifiesto una necesidad no satisfecha de desarrollar métodos automáticos que puedan segmentar las lesiones de EM de manera consistente y eficiente \cite{rondinella2024icpr2024competitionmultiple}
+. El desarrollo de técnicas de segmentación de lesiones automatizadas es un paso clave para avanzar en la gestión clínica y optimizar el tratamiento para las personas con EM
+.
+Los avances recientes en el aprendizaje profundo han demostrado un potencial significativo para automatizar tareas en el análisis de imágenes médicas \cite{LUNDERVOLD2019102}
+. Sin embargo, los métodos de aprendizaje profundo requieren la disponibilidad de grandes cantidades de datos para el entrenamiento, y existe una limitación en cuanto a la disponibilidad de grandes conjuntos de datos con segmentaciones manuales precisas realizadas por expertos \cite{LITJENS201760}. 
+
+\subsection{Motivación del trabajo}
+La segmentación precisa de las lesiones de EM en imágenes de resonancia magnética es un reto fundamental en el ámbito clínico. Aunque la RM es una herramienta clave para el diagnóstico y seguimiento de esta enfermedad, la segmentación manual de las lesiones continúa siendo una tarea compleja. 
+
+En este contexto, los métodos automáticos de segmentación basados en redes neuronales profundas representan una oportunidad para mejorar significativamente la eficiencia, precisión y reproducibilidad del proceso. El desarrollo de sistemas automáticos adaptados a este problema permitiría optimizar la práctica clínica y servir como herramienta adicional a los médicos en su trabajo.
+
+Dada la necesidad e importancia de métodos automáticos para la segmentación de las lesiones de EM, este trabajo busca explorar y desarollar un sistema automático de segmentación de lesiones usando redes neuronales. 
+
+\subsection{Objetivos del trabajo}
+El objetivo principal de este trabajo es desarrollar un sistema automático para la segmentación de lesiones de EM a partir de imágenes de RM, utilizando técnicas de aprendizaje profundo. Este objetivo general se concreta en los siguientes subobjetivos:
+
+\begin{itemize}
+    \item Diseñar e implementar un programa de segmentación automática que incluya implementaciones de las siguientes redes neuronales:
+        \begin{itemize}
+            \item YOLO (You Only Look Once), diseñada para detección de objetos, aunque también puede realizar segmentación. Destaca por su capacidad de procesamiento rápido en tiempo real \cite{yolo}.
+            \item U-Net, diseñada específicamente para segmentación pixel a pixel en imágenes biomédicas \cite{unet}.
+            \item FSRCNN (Fast Super-Resolution Convolutional Neural Network): esta red está diseñada para la superresolución de imágenes \cite{fsrcnn}.
+        \end{itemize} 
+
+    \item Investigar el impacto del uso FSRCNN en la etapa de preprocesamiento del conjunto de datos. Se aplicará superresolución con FSRCNN a las imágenes y máscaras originales antes del entrenamiento.
+
+    \item Comparar el rendimiento del sistema con y sin mejora de resolución para determinar si esta técnica aporta beneficios reales en la segmentación de lesiones y también determinar qué red de segmentación rinde mejor. Para ello, se entrenarán y evaluarán las redes según métricas estándar.
+    
+\end{itemize}
+
+\subsection{Descripción general del enfoque}
+Este trabajo adopta un enfoque dual para abordar la tarea de segmentación automática de lesiones de EM en imágenes de RM. En primer lugar, se establece una línea base mediante el entrenamiento de redes YOLO y U-Net con imágenes originales extraídas de un conjunto de datos anotado. En segundo lugar, se explora una estrategia alternativa basada en el preprocesamiento de las imágenes y sus respectivas máscaras con técnicas de super-resolución.
+
+Para ello, se emplea la red FSRCNN con el objetivo de mejorar la resolución espacial de las imágenes, lo cual podría facilitar una mejor detección y segmentación de lesiones pequeñas o poco definidas. Las imágenes mejoradas se utilizan posteriormente para entrenar las arquitecturas YOLO y U-Net, evaluando así el impacto del aumento de resolución en el rendimiento de los modelos.
+
+Durante todo el proceso se garantiza una correcta separación entre los conjuntos de entrenamiento, validación y prueba, evitando cualquier solapamiento de datos que pueda inducir sesgos derivados de correlaciones entre imágenes del mismo paciente. Finalmente, se evalúa el rendimiento mediante métricas estándar definidas en el capítulo Metodologías.
+
+
+\end{document}

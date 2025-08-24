@@ -1,0 +1,127 @@
+\documentclass[12pt, a4paper, twoside]{article}
+
+\usepackage{umatfgspanish}
+\usepackage{subfiles}
+%\usepackage[T1]{fontenc}
+\usepackage{tabularx}
+\usepackage{graphicx}
+\usepackage{booktabs}
+%\usepackage[spanish]{babel}
+\usepackage{amsmath}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage{csquotes}
+
+\addto\captionsspanish{\renewcommand{\tablename}{Tabla}}
+\usepackage[
+backend=biber,
+style=ieee,
+sorting=none
+]{biblatex}
+
+\usepackage{listings}
+\usepackage{xcolor}
+\definecolor{delim}{RGB}{20,105,176}
+\definecolor{numb}{RGB}{106, 109, 32}
+\definecolor{string}{rgb}{0.64,0.08,0.08}
+
+\lstdefinelanguage{json}{
+    numbers=left,
+    numberstyle=\small,
+    frame=single,
+    rulecolor=\color{black},
+    showspaces=false,
+    showtabs=false,
+    breaklines=true,
+    postbreak=\raisebox{0ex}[0ex][0ex]{\ensuremath{\color{gray}\hookrightarrow\space}},
+    breakatwhitespace=true,
+    basicstyle=\ttfamily\small,
+    upquote=true,
+    morestring=[b]",
+    stringstyle=\color{string},
+    literate=
+     *{0}{{{\color{numb}0}}}{1}
+      {1}{{{\color{numb}1}}}{1}
+      {2}{{{\color{numb}2}}}{1}
+      {3}{{{\color{numb}3}}}{1}
+      {4}{{{\color{numb}4}}}{1}
+      {5}{{{\color{numb}5}}}{1}
+      {6}{{{\color{numb}6}}}{1}
+      {7}{{{\color{numb}7}}}{1}
+      {8}{{{\color{numb}8}}}{1}
+      {9}{{{\color{numb}9}}}{1}
+      {\{}{{{\color{delim}{\{}}}}{1}
+      {\}}{{{\color{delim}{\}}}}}{1}
+      {[}{{{\color{delim}{[}}}}{1}
+      {]}{{{\color{delim}{]}}}}{1},
+}
+
+\addbibresource{refs.bib}
+
+\begin{document}
+
+%% Cover
+\includepdf[noautoscale=true, width=\paperwidth]{cover.pdf}
+
+\clearpage
+\setcounter{page}{1}
+
+\includepdf[noautoscale=true, width=\paperwidth]{title.pdf}
+
+%\title{Segmentación Semántica de Lesiones de Esclerosis Múltiple en Resonancias Magnéticas mejorada por Super-Resolución}
+
+%\titlerunning{Segmentación de lesiones de EM}
+% If the paper title is too long for the running head, you can set
+% an abbreviated paper title here
+%
+%\author{Samuel Sánchez Toca\inst{1} \and
+%Ezequiel López Rubio\inst{1}\orcidID{0000-0001-8231-5687} \and
+%Jorge García González\inst{1}\orcidID{0000-0001-8610-3462}}
+%
+%\authorrunning{S. Sánchez Toca}
+
+%\institute{Universidad de Málaga, Málaga, Spain\\
+%\email{\{samuelsanchez,elr,jorgegarcia\}@uma.es}}
+
+\subfile{sections/abstract}
+
+\tableofcontents
+
+\newpage
+
+%\maketitle
+
+% ---- Introduccion ----
+\subfile{sections/intro}
+
+% ---- Estado del arte ----
+\subfile{sections/arte}
+
+% ---- Fundamentos ----
+\subfile{sections/fundamentos}
+
+% ---- Metodologia ----
+\subfile{sections/metodologia}
+
+% ---- Resultados ----
+\subfile{sections/resultados}
+
+% ---- Conclusiones ----
+\subfile{sections/conclusiones}
+
+% ---- Bibliografia ----
+
+\newpage 
+\ % Empty page
+\newpage
+\printbibliography
+
+%% Apendices
+% ---- Diseño e implementación ----
+\begin{umaappendices}
+  \subfile{sections/disenio_implementacion}
+\end{umaappendices}
+
+\includepdf[noautoscale=true, width=\paperwidth]{backcover.pdf}
+
+\end{document}

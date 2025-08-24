@@ -1,24 +1,44 @@
 .vscode/
 logs/
-.mypy_cache/
+src/**/.mypy_cache/
 old_scripts/
-credentials.json
+src/credentials.json
 roadmap.md
-venv/
+src/venv/
 *.pt
 *.pth
 *.zip
-results*/
-MSLesSeg-Dataset/
-runs/
+src/results*/
+src/MSLesSeg-Dataset/
+src/runs/
 gcs_api.json
 .env
 
 # Add folder but ignore its contents
-!datasets/
-datasets/*
+!src/datasets/
+src/datasets/*
 
 # Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
+src/**/__pycache__/
+src/**/*.py[cod]
+src/**/*$py.class
+
+# Latex intermediate files
+*.aux
+*.bbl
+*.blg
+*.brf
+*.idx
+*.ilg
+*.ind
+*.lof
+*.log
+*.lot
+*.out
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.nav
+*.snm
+*.vrb

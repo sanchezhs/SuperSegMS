@@ -1,0 +1,30 @@
+\documentclass[../main.tex]{subfiles}
+\begin{document}
+
+\section{Conclusiones y líneas futuras}
+
+En este Trabajo de Fin de Máster se ha desarrollado un sistema automático para la segmentación de lesiones de esclerosis múltiple en imágenes de resonancia magnética, explorando distintas estrategias basadas en redes neuronales profundas. El objetivo principal era comparar el rendimiento des distintas configuraciones usando las redes U-Net y YOLO en tareas de segmentación semántica, evaluando así el impacto de diferentes técnicas de preprocesamiento y selección de datos. Los resultados obtenidos permiten extraer varias conclusiones relevantes:
+
+\begin{itemize}
+    \item La elección de los cortes a utilizar durante el entrenamiento tiene un impacto en el rendimiento de los modelos. %Las estrategias de selección basadas en la presencia de lesión, especialmente la estrategia \textit{Bloque centrado en la máxima lesión}, han mejorado significativamente las métricas de segmentación con respecto al uso de todos los cortes disponibles.
+    
+    \item La incorporación de técnicas de superresolución (FSRCNN) ha demostrado ser beneficiosa, especialmente en la arquitectura U-Net, mejorando la calidad de las segmentaciones y elevando los valores de \textit{Dice} e \textit{IoU} sin un coste computacional prohibitivo.
+
+    \item U-Net ha mostrado un mejor rendimiento global en términos de precisión espacial, alcanzando mejores resultados en métricas como Dice, IoU y precisión. Por su parte, YOLO ha destacado por su rapidez en la inferencia y su mayor sensibilidad (recall), aunque su estrategia de predicción basada en polígonos puede limitar la precisión en lesiones pequeñas o de forma irregular.
+
+    \item El análisis cualitativo ha permitido observar diferencias relevantes entre ambas arquitecturas que no se pueden captar analizando exclusivamente los resultados numéricos. Mientras que U-Net proporciona segmentaciones más precisas a nivel de píxel, YOLO tiende a agrupar regiones cercanas mediante polígonos rectangulares, lo que puede ser una limitación en contextos clínicos donde los detalles morfológicos son clave.
+
+    \item En términos de eficiencia computacional, YOLO ha demostrado tiempos de inferencia menores, lo que podría ser ventajoso en escenarios donde la rapidez es prioritaria, como en sistemas de ayuda al diagnóstico en tiempo real.
+\end{itemize}
+
+A pesar de los resultados prometedores obtenidos, este trabajo presenta diversas limitaciones que conviene tener en cuenta al interpretar los hallazgos. En primer lugar, el tamaño del conjunto de datos es reducido, tanto en número de pacientes como en cortes disponibles, lo que puede afectar a la capacidad de generalización de los modelos. Aunque se ha aplicado validación cruzada para mitigar este problema, sería deseable contar con un volumen de datos mayor y más diverso. Además, el enfoque seguido se ha basado en la segmentación de cortes individuales en 2D, sin aprovechar la información contextual tridimensional que podría aportar una representación completa del volumen cerebral. Esto limita especialmente la segmentación de lesiones de forma irregular o difusa.
+
+Otra limitación importante es la ausencia de técnicas de postprocesamiento clínico en las predicciones, como operaciones morfológicas para refinar los bordes o eliminar regiones espurias. Dichas técnicas podrían mejorar la calidad final de las máscaras generadas. Asimismo, cabe destacar que la arquitectura YOLO no está diseñada originalmente para segmentación semántica, sino para tareas de detección, por lo que su aplicación en este trabajo ha requerido una adaptación no estructural que puede limitar su rendimiento frente a modelos específicamente diseñados para segmentación.
+
+Por otro lado, el sistema ha sido evaluado únicamente sobre un dominio clínico concreto —resonancia magnética cerebral en pacientes con esclerosis múltiple—, por lo que no puede garantizarse su aplicabilidad directa en otros contextos médicos o modalidades de imagen. Finalmente, las restricciones computacionales disponibles durante el desarrollo han condicionado el tamaño y profundidad de los modelos, así como el número de experimentos realizados, lo que sugiere que podrían alcanzarse mejores resultados con mayor capacidad de cómputo y entrenamiento más prolongado. Estas limitaciones abren múltiples líneas de mejora que se abordan en la sección de trabajo futuro.
+
+Como líneas futuras, se propone explorar arquitecturas híbridas que combinen la eficiencia de detección de YOLO con la precisión de segmentación de U-Net, así como evaluar el sistema sobre conjuntos de datos más amplios y variados para mejorar su capacidad de generalización. Además, aunque la aplicación de superresolución mejora los resultados, solo se ha explorado la duplicación de la resolución. Con más recursos computacionales, se podría investigar si mayores superresoluciones ($\times 3$, $\times 4$, etc) pueden proporcionar mejoras mayores. También sería interesante estudiar el impacto de la aplicación de otras técnicas de preprocesado, como por ejemplo, las aumentaciones. Éstas permiten aumentar el número de muestras del conjunto de datos aplicando transformaciones como rotaciones geométricas o modificaciones de los colores entre otros, enriqueciendo el conjunto de datos que en el ámbito de las imágenes médicas suele ser escaso. 
+
+En resumen, los resultados muestran que U-Net, combinada con estrategias de selección centradas en la lesión y técnicas de superresolución, constituye una solución robusta y precisa para la segmentación de lesiones de esclerosis múltiple. Sin embargo, la elección del modelo ideal dependerá del contexto clínico y de los requisitos computacionales específicos de la aplicación final.
+
+\end{document}
