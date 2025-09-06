@@ -46,7 +46,7 @@ class Strategy(str, Enum):
     ALL_SLICES = "all_slices"
     LESION = "lesion_slices"
     LESION_BLOCK = "lesion_block"
-    BRAIN = "brain"
+    BRAIN = "brain_slices"
 
 
 class EnvConfig(BaseModel):

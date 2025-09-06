@@ -124,43 +124,48 @@ def handle_generate_config(output_path: str | None):
 def make_default_experiment_template() -> dict:
     """
     Return a single-experiment template with placeholders for each step.
-    Users can copy/paste, fill in real values, and repeat under "experiments".
-    Returns:
-        dict: A dictionary representing a single experiment template.
+    Each field is pre-filled with a hint to guide the user.
     """
     return {
-        "id": "<experiment_id>",
+        "id": "<experiment_id: unique identifier, e.g. 'A'>",
         "preprocess": {
-            "net": "<e.g. 'unet' or 'yolo'>",
-            "src_path": "<path to raw data folder>",
-            "dst_path": "<where to write processed data>",
-            "resize": [320, 320],
-            "seed": 42,
-            "split": 0.7,
-            "strategy": "<e.g. 'all_slices', 'lesion_slices', 'lesion_block'>",
-            "super_scale": 1
+            "net": "<network to prepare data for: 'unet' or 'yolo'>",
+            "src_path": "<path to raw MRI dataset>",
+            "dst_path": "<where processed dataset will be saved>",
+            "resize": [320, 320],  # [width, height] target size for slices
+            "seed": 42,            # random seed for reproducibility
+            "split": 0.7,          # fraction of patients for training (rest goes to test/val)
+            "strategy": "<slice selection: 'all_slices', 'lesion_slices', 'lesion_block', 'brain_slices'>",
+            "super_scale": 1,      # factor for super-resolution (1 = none, 2 = 2x upscaling, etc.)
+            "kfold": {
+                "enable": True,      # enable k-fold cross-validation
+                "n_splits": 5,       # number of folds
+                "seed": 42,          # seed for fold splits
+                "mini_val_frac": 0.10, # fraction of training fold to hold out as mini-validation
+                "link_mode": "hardlink" # how to reference files: 'copy' or 'hardlink'
+            }
         },
         "train": {
-            "net": "<same as preprocess.net>",
-            "src_path": "<path to preprocessed data>",
-            "dst_path": "<where to write training outputs>",
-            "batch_size": 16,
-            "use_kfold": False,
-            "epochs": 25,
-            "learning_rate": 0.001
+            "net": "<must match preprocess.net>",
+            "src_path": "<path to preprocessed dataset>",
+            "dst_path": "<output directory for training results>",
+            "batch_size": 16,         # how many slices per training step
+            "use_kfold": True,       # whether to train with k-fold CV
+            "epochs": 25,             # number of training epochs
+            "learning_rate": 0.001    # initial learning rate
         },
         "predict": {
-            "net": "<same as train.net>",
-            "model_path": "<path/to/trained/model/file>",
-            "src_path": "<path to data for prediction>",
-            "dst_path": "<where to write predicted outputs>"
+            "net": "<must match train.net>",
+            "model_path": "<path/to/trained_model.pth>",
+            "src_path": "<dataset to run inference on>",
+            "dst_path": "<where predictions will be written>"
         },
         "evaluate": {
-            "net": "<same as train.net>",
-            "model_path": "<path/to/trained/model/file>",
-            "src_path": "<path to data for evaluation>",
-            "pred_path": "<predictions folder>",
-            "gt_path": "<ground-truth labels folder>"
+            "net": "<must match train.net>",
+            "model_path": "<path/to/trained_model.pth>",
+            "src_path": "<dataset to evaluate on>",
+            "pred_path": "<predictions folder (from predict step)>",
+            "gt_path": "<ground truth labels folder>"
         }
     }
 

@@ -110,7 +110,14 @@ A alto nivel, el programa tiene dos componentes: el experimento y el código que
         "split": 0.7,
         "seed": 42,
         "strategy": "<'all_slices', 'lesion_slices', 'brain_slices'>",
-        "super_scale": <1, 2, 3, 8>
+        "super_scale": <1, 2, 3, 8>,
+        "use_kfold": {
+            "enable": true,
+            "n_splits": 5,
+            "seed": 42,
+            "mini_val_frac": 0.10,
+            "link_mode": "<'copy' o 'hardlink'>"
+        }
     },
     "train": {
         "net": "<igual que preprocess.net>",
@@ -151,7 +158,7 @@ Dentro del módulo de preprocesamiento, se ha optado por un diseño basado en cl
 
 \begin{figure}
     \centering
-    \includegraphics[width=0.8\textwidth]{imgs/impl/preproces-diag-class.drawio.png}
+    \includegraphics[width=0.8\textwidth]{imgs/impl/preprocess-diag-class.png}
     \caption{Diagrama de clases del sistema de preprocesamiento.}
     \label{fig:clases-preprocesamiento}
 \end{figure}
@@ -168,7 +175,7 @@ Dentro del módulo de preprocesamiento, se ha optado por un diseño basado en cl
         \item \texttt{BrainSelector}: selecciona los cortes que contienen tejido cerebral, con o sin lesión.
     \end{itemize}
 
-    \item \textbf{PatientSplitter}: define el criterio de división de pacientes entre los subconjuntos de entrenamiento, validación y test.  \texttt{RandomPatientSplitter} realiza esta partición de forma aleatoria pero reproducible, asegurando que no haya solapamiento de pacientes entre subconjuntos.
+    \item \textbf{PatientSplitter}: define el criterio de división de pacientes. \texttt{HoldoutPatientSplitter} realiza esta partición de forma reproducible, asegurando que no haya solapamiento de pacientes entre subconjuntos.
 
     \item \textbf{Transformer}: representa una operación de transformación aplicada a una imagen 2D, como redimensionado, normalización o super-resolución. Esta interfaz permite componer múltiples transformaciones mediante la clase abstracta \texttt{ComposeTransformer}. Entre las transformaciones disponibles se incluyen:
     \begin{itemize}

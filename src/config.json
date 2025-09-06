@@ -446,7 +446,7 @@
         "resize": [320, 320],
         "split": 0.8,
         "seed": 42,
-        "strategy": "brain",
+        "strategy": "brain_slices",
         "super_scale": 1,
         "kfold": {
           "enable": true,
@@ -496,7 +496,7 @@
         "resize": [320, 320],
         "split": 0.8,
         "seed": 42,
-        "strategy": "brain",
+        "strategy": "brain_slices",
         "super_scale": 2,
         "kfold": {
           "enable": true,
@@ -546,7 +546,7 @@
                 "resize": [320, 320],
                 "split": 0.8,
                 "seed": 42,
-                "strategy": "brain",
+                "strategy": "brain_slices",
                 "super_scale": 1,
                 "kfold": {
                     "enable": true,
@@ -588,7 +588,7 @@
                 "resize": [320, 320],
                 "split": 0.8,
                 "seed": 42,
-                "strategy": "brain",
+                "strategy": "brain_slices",
                 "super_scale": 2,
                 "kfold": {
                     "enable": true,
