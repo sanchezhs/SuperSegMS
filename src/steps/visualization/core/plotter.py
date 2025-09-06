@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 from loguru import logger
@@ -73,7 +73,13 @@ class MetricsPlotter:
         title: str = "Segmentation Metrics",
         figsize: tuple = (9, 5)
     ) -> None:
-        """Simple bar summary for one model (no error bars)."""
+        """Simple bar summary for one model (no error bars).
+        
+        Args:
+            save_path (Optional[Path]): Path to save the plot. If None, the plot is shown instead.
+            title (str): Title of the plot.
+            figsize (tuple): Figure size.
+        """
         metrics_data = {
             "IoU": self.iou,
             "Dice": self.dice_score,
@@ -99,7 +105,13 @@ class MetricsPlotter:
         title: str = "Cross-Validation (mean ± std)",
         figsize: tuple = (9, 5)
     ) -> None:
-        """Bar plot with error bars from k-fold summary."""
+        """Bar plot with error bars from k-fold summary.
+        
+        Args:
+            save_path (Optional[Path]): Path to save the plot. If None, the plot is shown instead.
+            title (str): Title of the plot.
+            figsize (tuple): Figure size.
+        """
         if not self.kfold_summary:
             logger.warning("kfold_summary not provided; skipping plot_kfold_errorbars.")
             return
@@ -134,7 +146,12 @@ class MetricsPlotter:
         title: str = "Per-image metric distributions",
         figsize: tuple = (10, 6)
     ) -> None:
-        """Boxplots over per-image metrics (IoU, Dice, Precision, Recall, Specificity)."""
+        """Boxplots over per-image metrics (IoU, Dice, Precision, Recall, Specificity).
+        Args:
+            save_path (Optional[Path]): Path to save the plot. If None, the plot is shown instead.
+            title (str): Title of the plot.
+            figsize (tuple): Figure size.
+        """
         if not self.per_image:
             logger.warning("per_image not provided; skipping plot_boxplots_per_image.")
             return
@@ -166,7 +183,13 @@ class MetricsPlotter:
         title: str = "Inference time distribution",
         figsize: tuple = (9, 5)
     ) -> None:
-        """Histogram + CDF of per-image latency."""
+        """Histogram + CDF of per-image latency.
+        
+        Args:
+            save_path (Optional[Path]): Path to save the plot. If None, the plot is shown instead.
+            title (str): Title of the plot.
+            figsize (tuple): Figure size.
+        """
         times = self.latency_list or [d["inference_time"] for d in self.per_image if "inference_time" in d]
         times = [float(t) for t in times if t is not None]
         if not times:
@@ -194,7 +217,14 @@ class MetricsPlotter:
         title: Optional[str] = None,
         figsize: tuple = (8, 6)
     ) -> None:
-        """Scatter of metric vs lesion area (pixels). Requires per_image and lesion_areas aligned."""
+        """Scatter of metric vs lesion area (pixels). Requires per_image and lesion_areas aligned.
+        
+        Args:
+            metric (str): Metric to plot against size. One of "iou", "dice_score", "precision", "recall", "specificity".
+            save_path (Optional[Path]): Path to save the plot. If None, the plot is shown instead.
+            title (Optional[str]): Title of the plot. If None, a default title is used.
+            figsize (tuple): Figure size.
+        """
         if not self.per_image or self.lesion_areas is None:
             logger.warning("per_image or lesion_areas not provided; skipping plot_metric_vs_size.")
             return
@@ -240,6 +270,11 @@ class MetricsPlotter:
         """
         Plot Dice/IoU (and optionally Precision/Recall) as a function of threshold.
         Expects threshold_sweep = {"thresholds": [...], "dice": [...], "iou": [...], "precision": [...], "recall": [...]}
+        
+        Args:
+            save_path (Optional[Path]): Path to save the plot. If None, the plot is shown instead.
+            title (str): Title of the plot.
+            figsize (tuple): Figure size.
         """
         ts = self.threshold_sweep.get("thresholds")
         if ts is None:
@@ -266,7 +301,13 @@ class MetricsPlotter:
         title: str = "Precision–Recall curve",
         figsize: tuple = (7, 6)
     ) -> None:
-        """If you computed (precision, recall) pairs for multiple thresholds, plot the PR curve."""
+        """If you computed (precision, recall) pairs for multiple thresholds, plot the PR curve.
+        
+        Args:
+            save_path (Optional[Path]): Path to save the plot. If None, the plot is shown instead.
+            title (str): Title of the plot.
+            figsize (tuple): Figure size.
+        """
         prs = None
         p = self.threshold_sweep.get("precision")
         r = self.threshold_sweep.get("recall")
@@ -298,6 +339,9 @@ class MetricsPlotter:
         """
         Heatmap for comparing multiple models across metrics.
         Expects heatmap_matrix shape (n_models, n_metrics) and labels lists.
+
+        Args:
+            save_path (Optional[Path]): Path to save the plot. If None, the plot is shown instead.
         """
         M = self.heatmap_matrix
         if M is None or M.size == 0:
@@ -331,7 +375,13 @@ class MetricsPlotter:
         title: str = "Segmentation Metrics (radar)",
         figsize: tuple = (7, 7)
     ) -> None:
-        """Keep radar as optional eye-candy."""
+        """Keep radar as optional eye-candy.
+        
+        Args:
+            save_path (Optional[Path]): Path to save the plot. If None, the plot is shown instead.
+            title (str): Title of the plot.
+            figsize (tuple): Figure size.
+        """
         metrics_names = ["IoU", "Dice", "Precision", "Recall", "Specificity"]
         metrics_values = [self.iou, self.dice_score, self.precision, self.recall, self.specificity]
 
@@ -360,6 +410,11 @@ class MetricsPlotter:
     ) -> None:
         """
         Save everything available. Only plots with the required inputs are generated.
+
+        Args:
+            base_path (Path): Directory to save all plots.
+            prefix (str): Prefix for filenames.
+            title_prefix (str): Prefix for plot titles.
         """
         base_path = Path(base_path)
         base_path.mkdir(parents=True, exist_ok=True)

@@ -76,7 +76,11 @@ class YOLO:
         return self._metrics_calculator
 
     def _init_training(self, config: TrainConfig) -> None:
-        """Initialize training configuration."""
+        """Initialize training configuration.
+
+        Args:
+            config (TrainConfig): Configuration object for training.
+        """
         self.dst_path = config.dst_path
         self.batch_size = config.batch_size
         self.epochs = config.epochs
@@ -90,7 +94,11 @@ class YOLO:
             self._create_yaml()
 
     def _init_prediction(self, config: PredictConfig) -> None:
-        """Initialize prediction configuration."""
+        """Initialize prediction configuration.
+
+        Args:
+            config (PredictConfig): Configuration object for prediction.
+        """
         self.dst_path = config.dst_path
         self.model_path = config.model_path
         self.yaml_path = self.dst_path / "data.yaml"
@@ -98,7 +106,11 @@ class YOLO:
         self._create_yaml()
 
     def _init_evaluation(self, config: EvaluateConfig) -> None:
-        """Initialize evaluation configuration."""
+        """Initialize evaluation configuration.
+        
+        Args:
+            config (EvaluateConfig): Configuration object for evaluation.
+        """
         self.pred_path = config.pred_path
         self.model_path = config.model_path
         self.gt_path = config.gt_path
@@ -119,6 +131,9 @@ class YOLO:
         """Train the YOLO model using the provided configuration.
         If `use_kfold` is set to True, performs k-fold cross-validation.
         If `use_kfold` is False, performs a standard single-run training.
+
+        Returns:
+            Optional[dict]: Summary of metrics if k-fold cross-validation is used; otherwise None.
         """
         return self._run_kfold() if self.use_kfold else self._run_single_training()
         
@@ -127,6 +142,9 @@ class YOLO:
         Prefer materialized folds under <src_path>/cv_folds/fold_*/... .
         If not found, fallback to dynamic GroupKFold over <src_path>/images/train.
         All outputs (weights, predictions, metrics) are written under self.dst_path.
+
+        Returns:
+            Dict: Summary of cross-validation metrics.
         """
         cv_root = self.src_path / "cv_folds"
         fold_metrics: list[SegmentationMetrics] = []
@@ -219,6 +237,9 @@ class YOLO:
         Build GroupKFold over <src_path>/images/train grouped by patient,
         materialize temporary fold data under <dst_path>/_dyn_folds/,
         and write all training artifacts under <dst_path>/fold_i/.
+
+        Returns:
+            Dict: Summary of cross-validation metrics.
         """
         fold_metrics: list[SegmentationMetrics] = []
 
@@ -386,7 +407,7 @@ class YOLO:
         )
 
 
-    def predict(self, image_dir: Optional[Path] = None, pred_dir: Optional[Path] = None):
+    def predict(self, image_dir: Optional[Path] = None, pred_dir: Optional[Path] = None) -> None:
         """Run inference on images using the trained YOLO model.
         Args:
             image_dir (str, optional): Directory containing images to predict. Defaults to None.
@@ -442,6 +463,9 @@ class YOLO:
         """
         Evaluate the YOLO predictions using the ground truth masks on a per-image basis.
         Computes metrics using the injected MetricsCalculator.
+
+        Returns:
+            SegmentationMetrics: Average metrics across all evaluated images.
         """
         logger.info(f"Evaluating YOLO predictions in folder {self.pred_path}")
 
@@ -518,6 +542,10 @@ class YOLO:
     def _draw_predictions(self, pred_dir: Path, image_dir: Path) -> None:
         """
         Draw predictions on images and save them as binary masks.
+
+        Args:
+            pred_dir (Path): Directory where predictions are saved.
+            image_dir (Path): Directory containing the original images.
         """
         output_dir = pred_dir / "masks"
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -573,6 +601,9 @@ class YOLO:
         """
         Return (H, W) from a sample training image.
         Prefer final_retrain/images/train if present; else root images/train.
+
+        Returns:
+            tuple[int, int]: Height and width of the image.
         """
         base = self.src_path
         fr_train = base / "final_retrain" / "images" / "train"

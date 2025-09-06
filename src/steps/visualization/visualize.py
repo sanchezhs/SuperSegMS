@@ -6,6 +6,26 @@ from schemas.pipeline_schemas import Net
 from steps.visualization.core.plotter import MetricsPlotter
 
 def visualize(config: VisualizeConfig) -> None:
+    """
+    Generate and save visualization plots for segmentation model evaluation metrics.
+    Args:
+        config (VisualizeConfig): Configuration object containing parameters for visualization.
+    Raises:
+        ValueError: If the specified network type in the configuration is not supported.
+        FileNotFoundError: If the prediction path or required files (e.g., metrics.json) do not exist.
+    The function performs the following steps:
+        1. Validates the network type and the existence of the prediction path.
+        2. Loads evaluation metrics from `metrics.json` and optionally `kfold_summary.json`.
+        3. Creates a directory for saving plots if it does not already exist.
+        4. Loads per-image metrics and lesion area data if available.
+        5. Initializes a `MetricsPlotter` object to generate plots.
+        6. Saves all generated plots to the specified directory with a given prefix.
+        7. Writes the configuration to a file for reproducibility.
+        8. Logs the location of the saved visualizations.
+    Note:
+        - Supported network types for visualization are UNET and YOLO.
+        - Ensure that the `evaluate` step has been run prior to visualization to generate the required metrics files.
+    """
     if config.net != Net.UNET and config.net != Net.YOLO:
         raise ValueError(f"Unsupported network type for visualization: {config.net}. Only UNET and YOLO are supported.")
 

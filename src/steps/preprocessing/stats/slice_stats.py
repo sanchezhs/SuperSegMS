@@ -11,8 +11,18 @@ def compute_slice_stats(img_u8: np.ndarray, mask_u8: np.ndarray,
                         patient_id: str, timepoint: str, idx: int,
                         split: str, strategy: str, signature: str) -> SliceStats:
     """
-    img_u8: uint8 FLAIR slice (post-transform)
-    mask_u8: uint8 binary mask {0,255} (post-transform)
+    Compute statistics for a single slice given the image and mask.
+    Args:
+        img_u8 (np.ndarray): Grayscale image slice as a 2D numpy array (uint8).
+        mask_u8 (np.ndarray): Binary mask slice as a 2D numpy array (uint8).
+        patient_id (str): Identifier for the patient.
+        timepoint (str): Timepoint identifier.
+        idx (int): Slice index.
+        split (str): Data split (e.g., 'train', 'val', 'test').
+        strategy (str): Preprocessing strategy used.
+        signature (str): Preprocessing signature.
+    Returns:
+        SliceStats: Dataclass containing computed statistics for the slice.
     """
     h, w = mask_u8.shape
     total_px = h * w
@@ -68,15 +78,10 @@ def compute_slice_stats(img_u8: np.ndarray, mask_u8: np.ndarray,
         mean_in=mean_in, std_in=std_in, mean_out=mean_out, std_out=std_out, contrast=contrast
     )
 
-# def to_dict(s: SliceStats) -> Dict:
-#     d = asdict(s)
-#     # Make sure everything is JSON-serializable (nan -> None)
-#     for k, v in list(d.items()):
-#         if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
-#             d[k] = None
-#     return d
-
 class StatsCollector:
+    """
+    Collect and write per-slice statistics.
+    """
     def __init__(self) -> None:
         self.rows: List[Dict] = []
 
@@ -86,6 +91,9 @@ class StatsCollector:
     def write_json(self, path: Path) -> None:
         """
         Write full per-slice statistics to JSON file (nan -> None).
+
+        Args:
+            path (Path): Path to the output JSON file.
         """
         path.parent.mkdir(parents=True, exist_ok=True)
         def _nan_to_none(x):
@@ -102,6 +110,9 @@ class StatsCollector:
     def write_summary_json(self, path: Path) -> None:
         """
         Write aggregate statistics (summary) to JSON file (nan -> None).
+
+        Args:
+            path (Path): Path to the output JSON file.
         """
         path.parent.mkdir(parents=True, exist_ok=True)
         if not self.rows:

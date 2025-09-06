@@ -63,6 +63,7 @@ class EnvConfig(BaseModel):
 
 class KFoldPrep(BaseModel):
     enable: bool = False
+    final_retrain: bool = False
     n_splits: int = 5
     seed: int = 42
     mini_val_frac: float = 0.10

@@ -177,12 +177,13 @@ class UNet:
         `split` to PredictConfig (e.g., 'test', 'train', or 'val') to override.
         For CV use-cases, we usually skip the standalone predict step and
         use `from_kfold(...).predict()` on each fold's val subset.
+
+        Args:
+            config (PredictConfig): Configuration object
         """
         self.src_path = config.src_path
         self.dst_path = config.dst_path
         self.model_path = config.model_path
-
-        # Optional override (backward compatible if your schema doesn't have it)
         split = getattr(config, "split", "test")
 
         # Resolve images_dir based on split and what's materialized on disk
@@ -227,7 +228,14 @@ class UNet:
 
 
     def _init_training(self, config: TrainConfig) -> None:
-        """Initialize for training mode."""
+        """
+        Initialize the training mode for the U-Net model.
+        This method sets up the necessary paths, directories, model, and data loaders
+        for training the U-Net model based on the provided configuration.
+
+        Args:
+            config (TrainConfig): Configuration object
+        """
         # Set training-specific attributes
         self.src_path = config.src_path
         self.batch_size = config.batch_size
@@ -254,7 +262,23 @@ class UNet:
         self._setup_training_components()
 
     def _init_evaluation(self, config: EvaluateConfig) -> None:
-        """Initialize for evaluation mode on the split inferred from gt_path (e.g., 'test')."""
+        """
+        Initialize the evaluation mode for the specified dataset split.
+
+        This method sets up the necessary paths, directories, model, and data loader 
+        for evaluating the segmentation model on a specific dataset split. The split 
+        is inferred from the `gt_path` (ground truth path).
+
+        Args:
+            config (EvaluateConfig): Configuration object containing the following attributes:
+                - src_path (Path): Path to the source directory containing images and labels.
+                - model_path (Path): Path to the trained model file.
+                - pred_path (Path): Path to the directory where predictions will be saved.
+                - gt_path (Path): Path to the ground truth directory for the dataset split.
+
+        Raises:
+            FileNotFoundError: If the images directory for the inferred split does not exist.
+        """
         self.src_path  = config.src_path
         self.model_path = config.model_path
         self.pred_path  = config.pred_path
@@ -439,14 +463,14 @@ class UNet:
                     outputs = self.model(images)
                     loss = self.criterion(outputs, masks)
                     
-                    # Verificar loss válido antes de backprop
+                    # Check for valid loss before backprop
                     if torch.isnan(loss) or torch.isinf(loss):
                         logger.warning(f"Invalid loss at epoch {epoch+1}, batch {batch_idx}: {loss.item()}")
                         continue
 
                 self.scaler.scale(loss).backward()
                 
-                # Gradient clipping para estabilidad
+                # Gradient clipping for stability
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                 
                 self.scaler.step(self.optimizer)
@@ -458,19 +482,19 @@ class UNet:
                 if batch_idx % 10 == 0:
                     pbar.set_postfix({'loss': f'{loss.item():.4f}'})
 
-            # Calcular loss promedio del epoch
+            # Calculate average loss of the epoch
             avg_train_loss = epoch_loss / max(valid_batches, 1)
             
-            # Validación
+            # Validation phase
             self.model.eval()
             val_loss = self.validate()
 
-            # Actualizar scheduler solo si val_loss es válido
+            # Update scheduler only if val_loss is valid
             if not math.isnan(val_loss) and not math.isinf(val_loss):
                 self.scheduler.step(val_loss)
             else:
                 logger.warning(f"Invalid validation loss at epoch {epoch+1}: {val_loss}")
-                val_loss = float('inf')  # Tratar como muy malo
+                val_loss = float('inf')  # treat as worst case
 
             self.train_losses.append(avg_train_loss)
             self.val_losses.append(val_loss)
@@ -480,7 +504,7 @@ class UNet:
                 f"Train Loss: {avg_train_loss:.4f}, Val Loss: {val_loss:.4f}"
             )
 
-            # Guardar mejor modelo con mejor lógica
+            # Save better model with better logic
             if val_loss < best_val_loss and not math.isnan(val_loss):
                 best_val_loss = val_loss
                 torch.save(self.model.state_dict(), self.model_path)
@@ -545,6 +569,17 @@ class UNet:
         return instance
 
     def validate(self) -> float:
+        """
+        Validate the model on the validation dataset and compute the average loss.
+
+        This method sets the model to evaluation mode, iterates over the validation
+        data loader, and calculates the loss for each batch. It ensures that invalid
+        loss values (NaN or infinity) are excluded from the computation. The method
+        returns the average loss across all valid batches.
+
+        Returns:
+            float: The average validation loss. If no valid batches are found, returns 0.0.
+        """
         """Validate the model on the validation dataset and return the average loss."""
         self.model.eval()
         val_loss = 0.0
@@ -563,6 +598,22 @@ class UNet:
         return val_loss / max(num_batches, 1)
 
     def evaluate(self) -> SegmentationMetrics:
+        """
+        Evaluate the model on the validation dataset and compute segmentation metrics.
+        This method loads the model weights, performs inference on the validation dataset,
+        and calculates various segmentation metrics such as IoU, Dice score, precision, recall,
+        specificity, and inference time. The results are saved to disk, including both overall
+        metrics and per-image metrics.
+        Returns:
+            SegmentationMetrics: An object containing the computed metrics.
+        Raises:
+            FileNotFoundError: If the model weights file does not exist.
+            Exception: If an error occurs during batch evaluation.
+        Notes:
+            - The method ensures consistent handling of dimensions for predictions and ground truth.
+            - Metrics are averaged across batches, and per-image metrics include lesion area in pixels.
+            - Results are saved to JSON files in the specified output directory.
+        """
         """Evaluate model with consistent dimension handling."""
         logger.info(f"Evaluating model {self.model_path}")
         
@@ -677,6 +728,19 @@ class UNet:
         self.model.eval()
 
     def _get_dataloader(self, dataset: Dataset, batch_size: int, shuffle=False, num_workers=None) -> DataLoader:
+        """
+        Create and return a DataLoader for the given dataset.
+
+        Args:
+            dataset (Dataset): The dataset to load data from.
+            batch_size (int): Number of samples per batch.
+            shuffle (bool, optional): Whether to shuffle the dataset at every epoch. Defaults to False.
+            num_workers (int, optional): Number of subprocesses to use for data loading. If None, it will be set to the 
+                minimum of 4 and the number of threads available on the system. Defaults to None.
+
+        Returns:
+            DataLoader: A PyTorch DataLoader configured with the specified parameters.
+        """
         if num_workers is None:
             num_workers = min(4, max(0, torch.get_num_threads()))
         return DataLoader(
@@ -711,6 +775,28 @@ class UNet:
     def _plot_kfolds_curve(
         self, train_hist: list[list[float]], val_hist: list[list[float]], model_name: str
     ) -> None:
+        """
+        Plots and saves the K-Fold cross-validation loss curves for training and validation.
+
+        Args:
+            train_hist (list[list[float]]): A list of lists where each inner list contains 
+                the training loss values for each epoch of a specific fold.
+            val_hist (list[list[float]]): A list of lists where each inner list contains 
+                the validation loss values for each epoch of a specific fold.
+            model_name (str): The name of the model, used for the plot title and saved file name.
+
+        Returns:
+            None: This method saves the plot as an image file and does not return any value.
+
+        Side Effects:
+            - Saves the plot as a PNG file in the destination path specified by `self.dst_path`.
+            - Logs the location of the saved plot.
+
+        Notes:
+            - The training loss curves are plotted with solid lines, while the validation loss 
+              curves are plotted with dashed lines.
+            - The plot includes a legend, grid, and labeled axes for better interpretability.
+        """
         plt.figure(figsize=(10,6))
         for i, (tr, val) in enumerate(zip(train_hist, val_hist), start=1):
             plt.plot(tr,      label=f'Fold {i} Train')
@@ -725,6 +811,17 @@ class UNet:
         plt.close()
 
     def _infer_and_time(self, images) -> tuple[np.ndarray, float]:
+        """
+        Perform inference on the given images and measure the time taken.
+
+        Args:
+            images (torch.Tensor): A batch of input images as a PyTorch tensor.
+
+        Returns:
+            tuple[np.ndarray, float]: A tuple containing:
+                - pred_masks (np.ndarray): The predicted masks as a NumPy array.
+                - inference_time (float): The time taken for inference in seconds.
+        """
         start_time = time.perf_counter()
         with torch.no_grad():
             outputs = self.model(images)

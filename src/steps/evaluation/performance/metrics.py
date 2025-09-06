@@ -13,12 +13,32 @@ import json
 from schemas.pipeline_schemas import SegmentationMetrics
 
 class MetricsCalculator:
+    """
+    A class to compute pixel-level segmentation metrics from predictions and ground truth masks.
+    """
     @staticmethod
     def binarize(mask: np.ndarray, threshold: float = 0.5) -> np.ndarray:
+        """
+        Binarize a mask based on a threshold.
+        Args:
+            mask (np.ndarray): The input mask array.
+            threshold (float): The threshold value to binarize the mask. Defaults to 0.5.
+        Returns:
+            np.ndarray: A binary mask where values greater than the threshold are set to True, and others to False.
+        """
         return (mask.astype(np.float32) > float(threshold))
 
     @staticmethod
     def confusion_matrix(pred: np.ndarray, gt: np.ndarray, threshold: float = 0.5) -> Tuple[int, int, int, int]:
+        """
+        Compute the confusion matrix components: TP, FP, FN, TN.
+        Args:
+            pred (np.ndarray): The predicted mask array.
+            gt (np.ndarray): The ground truth mask array.
+            threshold (float): The threshold value to binarize the masks. Defaults to 0.5.
+        Returns:
+            Tuple[int, int, int, int]: A tuple containing TP, FP, FN, TN counts.
+        """
         p = MetricsCalculator.binarize(pred, threshold)
         g = MetricsCalculator.binarize(gt, threshold)
         tp = int(np.logical_and(p, g).sum())
@@ -29,6 +49,16 @@ class MetricsCalculator:
 
     @staticmethod
     def from_confusion(tp: int, fp: int, fn: int, tn: int) -> Dict[str, float]:
+        """
+        Compute segmentation metrics from confusion matrix components.
+        Args:
+            tp (int): True Positives count.
+            fp (int): False Positives count.
+            fn (int): False Negatives count.
+            tn (int): True Negatives count.
+        Returns:
+            Dict[str, float]: A dictionary containing IoU, Dice score, Precision, Recall, and Specificity.
+        """
         iou = tp / (tp + fp + fn) if (tp + fp + fn) > 0 else 0.0
         dice = (2 * tp) / (2 * tp + fp + fn) if (2 * tp + fp + fn) > 0 else 0.0
         precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
