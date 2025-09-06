@@ -2,7 +2,7 @@
 set -e
 
 ZIP_FILE="project.zip"
-OUTPUT_FILE="output.pdf"
+OUTPUT_FILE="../paper/output.pdf"
 PAPER_DIR="../paper"
 MAIN_FILE="main.tex"
 ENGINE="xelatex"
